@@ -135,15 +135,27 @@ The dry run above succeeded on an ARM64 Mac using Xcode 26.0 / Swift 6.2. The CI
 | Wrong architecture and wrong tag supplied to the bundle verifier | Both rejected |
 | Actionlint, ShellCheck, shell syntax, README links and whitespace | Passed |
 
-The local `ChatBridge-0.3.1-rc.1-macos-arm64.dmg` is approximately 56.7 MiB. Its SHA-256 is `c324a9451757863d3b466f61730bcce9e06df738be5d90d6d296545844be6e5a`. It is a dry-run artifact, not a published release. No commit or tag was pushed. At this check, the application and workflow files were still uncommitted; they must be included in the tagged commit before running the hosted workflow.
+The local `ChatBridge-0.3.1-rc.1-macos-arm64.dmg` is approximately 56.7 MiB. Its SHA-256 is `c324a9451757863d3b466f61730bcce9e06df738be5d90d6d296545844be6e5a`. It is a dry-run artifact, not a published release. This local check preceded the commits, tags and hosted verification below.
+
+### Hosted release verification — 2026-09-21
+
+The prerelease and stable release were built from the same commit, `648edbda846ea4b2c83e3a95558ea1c545470b2a`, on native ARM64 and Intel runners.
+
+| Version | Workflow | Release status |
+| --- | --- | --- |
+| [v0.3.1-rc.3](https://github.com/section9-lab/chat-bridge/releases/tag/v0.3.1-rc.3) | [35534336591](https://github.com/section9-lab/chat-bridge/actions/runs/35534336591) — passed | Prerelease; not Latest |
+| [v0.3.1](https://github.com/section9-lab/chat-bridge/releases/tag/v0.3.1) | [35535280007](https://github.com/section9-lab/chat-bridge/actions/runs/35535280007) — passed | Stable; Latest |
+
+Each workflow passed 17 release-rule tests and, on each architecture, 370 service tests, 48 native tests and 9 installed-bundle checks. All four published DMGs were downloaded again and checked against `SHA256SUMS.txt` and GitHub's asset digests. Read-only mounts confirmed the app and helper versions, all three native binary architectures, the Applications shortcut and ad-hoc signatures. The prerelease contains version `0.3.1-rc.3` with build number `3`; the stable release contains version `0.3.1` with build number `4`.
+
+The first two attempts exposed hosted-runner UI test assumptions and delayed visibility of new drafts in the releases list. Window tests now await native notifications, the CI fixture enables native transparency, and publishing uses the draft creation response directly. The failed tags and workflow logs remain available; the empty draft from the failed publish attempt was removed. No messaging account or real Agent task was exercised by these checks.
 
 ## References
 
 - [GitHub-hosted runner architectures](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
 - [Intel macOS 15 image](https://github.com/actions/runner-images/blob/main/images/macos/macos-15-Readme.md) and [ARM64 macOS 15 image](https://github.com/actions/runner-images/blob/main/images/macos/macos-15-arm64-Readme.md)
 - [GitHub immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases)
-- [GitHub CLI release creation](https://cli.github.com/manual/gh_release_create)
-- [GitHub release asset digests](https://docs.github.com/en/rest/releases/releases)
+- [GitHub release creation and asset digests](https://docs.github.com/en/rest/releases/releases)
 - [Triggering workflows and GITHUB_TOKEN](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows)
 - [Apple: safely open apps on your Mac](https://support.apple.com/en-us/102445)
 - [Apple notarization requirements](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution)
