@@ -122,6 +122,17 @@ class ReleaseTests(unittest.TestCase):
         self.assertTrue(remote.checked_uploads)
         self.assertTrue(remote.prerelease)
 
+    def test_new_draft_can_publish_before_it_appears_in_release_list(self):
+        self.assets()
+        remote = FakeGitHub(visible_in_list=False)
+        try:
+            self.publish(remote)
+        except StopIteration:
+            self.fail("Publishing must not depend on a new draft appearing in the release list immediately")
+        self.assertTrue(remote.created)
+        self.assertTrue(remote.published)
+        self.assertEqual(remote.uploaded, 3)
+
     def test_missing_architecture_never_calls_github(self):
         remote = FakeGitHub()
         with self.assertRaises(ValueError):
@@ -175,7 +186,7 @@ class ReleaseTests(unittest.TestCase):
 
 class FakeGitHub:
     """An offline stand-in for the GitHub API; no account or release is accessed."""
-    def __init__(self, draft=None, commit=COMMIT, marker=None, corrupt=False, fail_upload=False):
+    def __init__(self, draft=None, commit=COMMIT, marker=None, corrupt=False, fail_upload=False, visible_in_list=True):
         self.commit = commit
         self.release = None if draft is None else {
             "id": 7, "tag_name": TAG, "draft": draft, "assets": [],
@@ -183,6 +194,7 @@ class FakeGitHub:
         }
         self.corrupt = corrupt
         self.fail_upload = fail_upload
+        self.visible_in_list = visible_in_list
         self.created = self.published = self.checked_uploads = self.prerelease = False
         self.uploaded = 0
         self.calls = []
@@ -194,7 +206,15 @@ class FakeGitHub:
             if "/commits/" in endpoint:
                 return {"sha": self.commit}
             if "--paginate" in args:
-                return [[self.release] if self.release else []]
+                return [[self.release] if self.release and self.visible_in_list else []]
+            if endpoint.endswith("/releases") and "POST" in args:
+                payload = json.loads(Path(args[args.index("--input") + 1]).read_text())
+                assert payload["draft"] and payload["prerelease"] and payload["generate_release_notes"]
+                assert "ad-hoc" in payload["body"] and "not notarized" in payload["body"]
+                self.created = True
+                self.release = {"id": 7, "tag_name": payload["tag_name"], "draft": True,
+                                "assets": [], "body": payload["body"]}
+                return self.release
             if endpoint.endswith("/releases/7"):
                 if "PATCH" in args:
                     assert self.checked_uploads, "Publishing must follow remote asset verification"
@@ -203,12 +223,6 @@ class FakeGitHub:
                     return self.release
                 self.checked_uploads = self.uploaded == 3
                 return self.release
-        if args[:2] == ("release", "create"):
-            self.created = True
-            notes = Path(args[args.index("--notes-file") + 1]).read_text()
-            assert "ad-hoc" in notes and "not notarized" in notes
-            self.release = {"id": 7, "tag_name": TAG, "draft": True, "assets": [], "body": notes}
-            return None
         if args[:2] == ("release", "upload"):
             if self.fail_upload:
                 raise RuntimeError("Upload failed")

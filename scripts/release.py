@@ -107,15 +107,11 @@ Built from `{commit}`. Native builds and bundled-service checks passed on both a
 Messaging accounts and third-party Agent services are not exercised by release CI.
 """
         with tempfile.TemporaryDirectory(prefix="chat-bridge-notes-") as temp:
-            note_path = Path(temp) / "notes.md"
-            note_path.write_text(notes)
-            args = ["release", "create", tag, "--repo", repository, "--draft", "--verify-tag",
-                    "--title", f"Chat Bridge {tag}", "--notes-file", str(note_path), "--generate-notes"]
-            if version["prerelease"]:
-                args.append("--prerelease")
-            gh(*args)
-        releases = gh("api", f"{api}/releases?per_page=100", "--paginate", "--slurp")
-        release = next(item for page in releases for item in page if item["tag_name"] == tag)
+            payload = Path(temp) / "release.json"
+            payload.write_text(json.dumps({"tag_name": tag, "name": f"Chat Bridge {tag}",
+                "draft": True, "prerelease": version["prerelease"], "body": notes, "generate_release_notes": True}))
+            # The list endpoint can lag behind creation; use the new draft's returned ID.
+            release = gh("api", f"{api}/releases", "--method", "POST", "--input", str(payload))
     gh("release", "upload", tag, *map(str, files), "--repo", repository, "--clobber")
     uploaded = gh("api", f"{api}/releases/{release['id']}")
     if not uploaded["draft"] or {asset["name"] for asset in uploaded["assets"]} != names:
