@@ -62,6 +62,11 @@ jobs:
           test "$(uname -m)" = "$TARGET_ARCH"
           xcodebuild -version
           swift --version
+      - name: Configure the native material test environment
+        run: |
+          # Hosted images enable Reduce Transparency; these tests exercise the material itself.
+          defaults write com.apple.universalaccess reduceTransparency -bool false
+          test "$(defaults read com.apple.universalaccess reduceTransparency)" = 0
       - name: Test and build the app with its bundled runtime
         run: bash scripts/build-app.sh
       - name: Package and verify the disk image
