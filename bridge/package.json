@@ -1,0 +1,30 @@
+{
+  "name": "@chat-bridge/local-service",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "tsc && node --test dist/test/*.test.js",
+    "start": "node dist/src/main.js"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "1.4.0",
+    "@anthropic-ai/claude-agent-sdk": "0.3.270",
+    "@photon-ai/imessage-kit": "3.0.0",
+    "better-sqlite3": "12.11.1",
+    "chat": "4.40.0",
+    "chat-adapter-weixin": "0.1.4"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "7.6.13",
+    "@types/node": "24.10.1",
+    "typescript": "5.9.3"
+  },
+  "allowScripts": {
+    "better-sqlite3@12.11.1": true
+  }
+}

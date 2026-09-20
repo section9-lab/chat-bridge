@@ -60,3 +60,13 @@ fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
+
+# Local bridge builds and runtime data
+node_modules/
+dist/
+.runtime/
+__pycache__/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+.DS_Store
