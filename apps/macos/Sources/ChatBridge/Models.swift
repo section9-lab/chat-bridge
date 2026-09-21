@@ -238,6 +238,7 @@ struct AgentProbe: Decodable {
     var reason = "桌面会话接入尚未验证"
     var status: String?
     var executionError: String?
+    var isAvailable: Bool { ready && executionError == nil }
     var statusLabel: String {
         if ready && executionError != nil { return "执行异常" }
         if ready { return "可用" }

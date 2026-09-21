@@ -220,7 +220,8 @@ struct SettingsView: View {
                 Button("保存") { saveName(agent) }.buttonStyle(SettingsButtonStyle())
             } else if !agent.comingSoon {
                 Button("打开") { openAgent(agent.id) }.buttonStyle(SettingsButtonStyle())
-                    .help("打开 " + agent.name + " 会话面板").disabled(!service.isRunning)
+                    .help("打开 " + agent.name + " 会话面板")
+                    .disabled(!service.isRunning || probe?.isAvailable != true)
             }
         }.padding(.vertical, 9)
     }

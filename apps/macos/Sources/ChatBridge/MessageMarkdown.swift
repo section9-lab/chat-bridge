@@ -20,7 +20,7 @@ struct MessageMarkdown: View, Equatable {
 
     private static let theme = Theme.basic
         .text {
-            FontSize(14)
+            FontSize(13)
             ForegroundColor(.primary)
             BackgroundColor(nil)
         }

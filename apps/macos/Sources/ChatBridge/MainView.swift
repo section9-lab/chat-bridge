@@ -89,7 +89,9 @@ struct MainView: View {
     private func agentCard(_ agent: Agent) -> some View {
         let selected = service.viewedAgent == agent.id
         let probe = service.probes[agent.id]
-        let label = service.displayName(agent.id) + (agent.comingSoon ? "，即将支持" : "，" + (probe?.statusLabel ?? "检测中") + "，打开会话")
+        let unavailable = agent.comingSoon || probe?.isAvailable != true
+        let state = agent.comingSoon ? "即将支持" : probe?.statusLabel ?? "检测中"
+        let label = service.displayName(agent.id) + "，" + state + (unavailable ? "，暂不可用" : "，打开会话")
         let hint = probe?.executionError ?? probe?.reason ?? "正在自动检测"
         return Button {
             hasChosenAgent = true
@@ -116,17 +118,18 @@ struct MainView: View {
             .padding(17).frame(maxWidth: .infinity, alignment: .leading).frame(height: 132)
             .background {
                 RoundedRectangle(cornerRadius: 20)
-                    .fill(selected ? Color.accentColor : Color.primary.opacity(agent.comingSoon ? 0 : 0.035))
+                    .fill(selected ? Color.accentColor : Color.primary.opacity(unavailable ? 0 : 0.035))
             }
             .overlay {
-                if !selected && agent.comingSoon {
+                if !selected && unavailable {
                     RoundedRectangle(cornerRadius: 20)
-                        .strokeBorder(.primary.opacity(0.12), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
+                        .strokeBorder(.primary.opacity(0.18), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
                 }
             }
             .contentShape(RoundedRectangle(cornerRadius: 20))
         }
         .buttonStyle(.plain)
+        .disabled(unavailable)
         .accessibilityLabel(label)
         .accessibilityHint(hint)
         .accessibilityAddTraits(selected ? .isSelected : [])
