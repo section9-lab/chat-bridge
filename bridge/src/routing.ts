@@ -76,9 +76,13 @@ export function routeActions(context: RoutingContext): RouteAction[] {
   };
   for (const agent of agentIDs) {
     if (!available(agent)) continue;
-    actions.push({ id: "list_projects_" + agent, kind: "list", command: "project", scope: { agent }, label: "只查看 " + agentNames[agent] + " 的项目，不切换当前会话" },
-      { id: "list_sessions_" + agent, kind: "list", command: "sessions", scope: { agent }, label: "只查看 " + agentNames[agent] + " 的全部会话，不切换当前会话" },
-      { id: "list_sessions_" + agent + "_none", kind: "list", command: "sessions", scope: { agent, projectId: null }, label: "只查看 " + agentNames[agent] + " 的无项目直接会话" });
+    // list_projects / list_sessions above already cover the current agent; repeating them here
+    // splits the model's probability between two ids that run the same lookup.
+    if (agent !== context.current.agent) {
+      actions.push({ id: "list_projects_" + agent, kind: "list", command: "project", scope: { agent }, label: "只查看 " + agentNames[agent] + " 的项目，不切换当前会话" },
+        { id: "list_sessions_" + agent, kind: "list", command: "sessions", scope: { agent }, label: "只查看 " + agentNames[agent] + " 的全部会话，不切换当前会话" });
+    }
+    actions.push({ id: "list_sessions_" + agent + "_none", kind: "list", command: "sessions", scope: { agent, projectId: null }, label: "只查看 " + agentNames[agent] + " 的无项目直接会话" });
     if (!context.lookupScope) actions.push({ id: "lookup_sessions_" + agent, kind: "lookup", scope: { agent }, label: "查找 " + agentNames[agent] + " 的较早会话，再判断原任务的目标" },
       { id: "lookup_sessions_" + agent + "_none", kind: "lookup", scope: { agent, projectId: null }, label: "查找 " + agentNames[agent] + " 的无项目旧会话，再判断原任务的目标" });
     if (context.projectCreationAgents?.includes(agent)) actions.push({ id: "new_project_" + agent, kind: "send", createProject: true,
@@ -88,9 +92,17 @@ export function routeActions(context: RoutingContext): RouteAction[] {
     const target = context.active[agent] ?? { agent, mode: "code", projectId: null, sessionId: null };
     actions.push({ id: "switch_" + agent, kind: "select", target, label: "只切换／返回 " + agentNames[agent] + " 上次的目标：" + describe(target) });
   }
+  const asked = context.text.toLocaleLowerCase();
   const score = (name: string) => {
-    const words = name.toLocaleLowerCase().split(/[\s/._-]+/).filter((word) => word.length > 1);
-    return words.reduce((total, word) => total + (context.text.toLocaleLowerCase().includes(word) ? word.length : 0), 0);
+    const lowered = name.toLocaleLowerCase();
+    const words = lowered.split(/[\s/._-]+/).filter((word) => word.length > 1);
+    let total = words.reduce((sum, word) => sum + (asked.includes(word) ? word.length : 0), 0);
+    // Chinese names carry no delimiters, so the split leaves one long token that a message almost
+    // never contains whole; without this the caps below fall back to catalogue order.
+    for (const run of lowered.match(/[\u3400-\u9fff]{2,}/gu) ?? []) {
+      for (let at = 0; at + 2 <= run.length; at++) if (asked.includes(run.slice(at, at + 2))) total += 2;
+    }
+    return total;
   };
   const withinScope = (agent: string, projectId: string | null) => !context.lookupScope || agent === context.lookupScope.agent &&
     (context.lookupScope.projectId === undefined || projectId === context.lookupScope.projectId);
