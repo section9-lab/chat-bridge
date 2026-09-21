@@ -96,6 +96,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         repositionPanel()
         panel?.makeKeyAndOrderFront(nil)
+        updateStatusLogo()
     }
     @objc private func repositionPanel() {
         guard let button = statusItem.button, let window = button.window, let panel else { return }
@@ -112,8 +113,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
     private func hidePanel() {
-        if panel?.isVisible == true { service.dismissFileSearch() }
+        guard panel?.isVisible == true else { return }
+        service.dismissFileSearch()
         panel?.orderOut(nil)
+        updateStatusLogo()
+    }
+    private func updateStatusLogo() {
+        let selected = panel?.isVisible == true
+        statusItem?.button?.image = AppLogo.statusImage(selected: selected)
+        statusItem?.button?.toolTip = selected ? "Chat Bridge · 收起会话" : "Chat Bridge · 打开上次会话"
     }
     func showMainWindow() {
         hidePanel()

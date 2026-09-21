@@ -45,6 +45,19 @@ final class StatusLogoTests: XCTestCase {
     }
 
     @MainActor
+    func testOpeningSettingsRemovesTheConversationSelectionRing() throws {
+        try withApplication { delegate, button in
+            let closedLogo = try XCTUnwrap(button.image?.tiffRepresentation)
+            button.performClick(nil)
+            XCTAssertNotEqual(button.image?.tiffRepresentation, closedLogo)
+            delegate.showSettings()
+            XCTAssertEqual(button.image?.tiffRepresentation, closedLogo)
+            XCTAssertFalse(NSApp.windows.contains { $0 is ChatPanel && $0.isVisible })
+            XCTAssertEqual(button.frame.width, 32, "Selection does not move neighboring menu bar items")
+        }
+    }
+
+    @MainActor
     private func withApplication(_ verify: (AppDelegate, NSStatusBarButton) throws -> Void) throws {
         let application = NSApplication.shared
         let existing = Set(application.windows.map(\.windowNumber))

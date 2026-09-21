@@ -1,8 +1,21 @@
 import AppKit
 
 enum AppLogo {
-    static func statusImage() -> NSImage {
-        let image = NSImage(size: NSSize(width: 22, height: 18), flipped: true) { _ in
+    static func statusImage(selected: Bool = false) -> NSImage {
+        let image = NSImage(size: NSSize(width: 22, height: selected ? 22 : 18), flipped: true) { bounds in
+            NSGraphicsContext.saveGraphicsState()
+            defer { NSGraphicsContext.restoreGraphicsState() }
+            if selected {
+                let ring = NSBezierPath(ovalIn: bounds.insetBy(dx: 1, dy: 1))
+                ring.lineWidth = 1.6
+                NSColor.black.setStroke()
+                ring.stroke()
+                let scale: CGFloat = 0.76
+                let transform = NSAffineTransform()
+                transform.translateX(by: (bounds.width - 22 * scale) / 2, yBy: (bounds.height - 18 * scale) / 2)
+                transform.scale(by: scale)
+                transform.concat()
+            }
             let shape = NSBezierPath()
             shape.move(to: NSPoint(x: 1, y: 13.4))
             shape.curve(to: NSPoint(x: 3.2, y: 6.2), controlPoint1: NSPoint(x: 0.8, y: 10.2), controlPoint2: NSPoint(x: 2, y: 7.8))
