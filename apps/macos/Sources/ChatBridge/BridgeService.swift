@@ -16,7 +16,16 @@ final class BridgeService: ObservableObject {
     @Published var draftAttachments: [String: [MessageAttachment]] = [:]
     @Published var importingAttachments: Set<String> = []
     @Published var sending: Set<String> = []
-    var choosingFiles = false
+    @Published var draftSelections: [String: NSRange] = [:]
+    @Published var fileMention: FileMention?
+    @Published var fileSuggestions: [FileSuggestion] = []
+    @Published var highlightedFile = 0
+    @Published var searchingFiles = false
+    @Published var fileSearchIncomplete = false
+    private var fileSearchTask: Task<Void, Never>?
+    private var fileSearchID = UUID()
+    private var dismissedMention: FileMention?
+    private var fileSearchDraft: String?
     @Published var channelBusy = false
     @Published var channelErrors: [String: String] = [:]
     @Published var taskBusy: Set<String> = []
@@ -367,49 +376,80 @@ final class BridgeService: ObservableObject {
             } catch { lastError = error.localizedDescription }
         }
     }
-    func updateDraft(_ text: String) {
-        let key = draftKey, previous = drafts[key] ?? ""
-        drafts[key] = text
-        guard canSend, !choosingFiles, !sending.contains(key), !importingAttachments.contains(key),
-              text.count == previous.count + 1 else { return }
-        var index = text.startIndex
-        for (old, new) in zip(previous, text) {
-            if old != new { break }
-            index = text.index(after: index)
-        }
-        guard index < text.endIndex, text[index] == "@",
-              index == text.startIndex || text[text.index(before: index)].isWhitespace else { return }
-        var withoutMention = text; withoutMention.remove(at: index)
-        guard withoutMention == previous else { return }
-        drafts[key] = withoutMention
-        chooseFiles()
+    var fileSearchRoots: [URL] {
+        var paths = (state.projects ?? []).filter { $0.agent == viewedAgent && $0.id == state.selection.projectId }.flatMap(\.roots)
+        if let cwd = viewedSession?.cwd { paths.insert(cwd, at: 0) }
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        paths += ["Desktop", "Downloads", "Documents"].map { home.appendingPathComponent($0).path }
+        var seen: Set<String> = []
+        return paths.filter { $0.hasPrefix("/") && seen.insert($0).inserted }.map { URL(fileURLWithPath: $0) }
     }
-    func chooseFiles() {
+    func updateDraft(_ text: String, selection: NSRange? = nil, composing: Bool = false) {
         let key = draftKey
-        guard canSend, !choosingFiles, !importingAttachments.contains(key) else { return }
+        drafts[key] = text
+        let caret = selection ?? NSRange(location: (text as NSString).length, length: 0)
+        draftSelections[key] = caret
+        let mention = FileMention.find(in: text, selection: caret)
+        if fileSearchDraft != key || mention != dismissedMention { dismissedMention = nil }
+        guard canSend, !composing, !sending.contains(key), !importingAttachments.contains(key),
+              let mention, mention != dismissedMention else { dismissFileSearch(remember: false); return }
+        if fileMention == mention && fileSearchDraft == key { return }
+        dismissedMention = nil
+        fileSearchTask?.cancel()
+        let id = UUID(), roots = fileSearchRoots
+        fileSearchID = id; fileSearchDraft = key
+        fileMention = mention; fileSuggestions = []; highlightedFile = 0; searchingFiles = true
+        fileSearchIncomplete = false
+        fileSearchTask = Task {
+            do { try await Task.sleep(nanoseconds: 180_000_000) } catch { return }
+            let result = await FileSearch.search(mention.query, roots: roots)
+            guard !Task.isCancelled, fileSearchID == id, draftKey == key else { return }
+            fileSuggestions = result.files; fileSearchIncomplete = result.incomplete; searchingFiles = false
+        }
+    }
+    func beginFileSearch() {
+        let key = draftKey
+        guard canSend, !sending.contains(key), !importingAttachments.contains(key) else { return }
         guard (draftAttachments[key]?.count ?? 0) < 10 else {
             lastError = "每条消息最多附加 10 个文件。"; return
         }
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = true
-        panel.prompt = "添加文件"
-        panel.message = "最多 10 个文件，单个文件不超过 50 MiB。发送消息时会交给目标 Agent。"
-        choosingFiles = true
-        let parent = NSApp.keyWindow
-        NSApp.activate(ignoringOtherApps: true)
-        let completion: (NSApplication.ModalResponse) -> Void = { [weak self] response in
-            guard let self else { return }
-            self.choosingFiles = false
-            if response == .OK { Task { await self.addAttachments(panel.urls, to: key) } }
-        }
-        if let parent { panel.beginSheetModal(for: parent, completionHandler: completion) }
-        else { panel.begin(completionHandler: completion) }
+        let text = drafts[key] ?? ""
+        let end = NSRange(location: (text as NSString).length, length: 0)
+        let saved = draftSelections[key] ?? end
+        let selection = Range(saved, in: text) == nil ? end : saved
+        dismissedMention = nil
+        if FileMention.find(in: text, selection: selection) != nil { updateDraft(text, selection: selection); return }
+        guard let range = Range(selection, in: text) else { return }
+        let prefix = text[..<range.lowerBound]
+        let token = (prefix.isEmpty || prefix.last?.isWhitespace == true ? "" : " ") + "@"
+        updateDraft(text.replacingCharacters(in: range, with: token), selection: NSRange(location: selection.location + (token as NSString).length, length: 0))
     }
-    func addAttachments(_ urls: [URL], to key: String) async {
-        guard !urls.isEmpty, !importingAttachments.contains(key) else { return }
+    func dismissFileSearch(remember: Bool = true) {
+        if remember { dismissedMention = fileMention }
+        fileSearchTask?.cancel(); fileSearchID = UUID()
+        fileMention = nil; fileSuggestions = []; searchingFiles = false; highlightedFile = 0
+    }
+    func moveFileHighlight(_ offset: Int) {
+        guard !fileSuggestions.isEmpty else { return }
+        highlightedFile = (highlightedFile + offset + fileSuggestions.count) % fileSuggestions.count
+    }
+    func attachSuggestedFile(_ file: FileSuggestion) {
+        guard let mention = fileMention, fileSearchDraft == draftKey else { return }
+        let key = draftKey, original = drafts[key] ?? ""
+        Task {
+            guard await addAttachments([file.url], to: key) else { return }
+            if drafts[key] == original {
+                drafts[key] = (original as NSString).replacingCharacters(in: mention.range, with: "")
+                draftSelections[key] = NSRange(location: mention.range.location, length: 0)
+            }
+            if fileSearchDraft == key { dismissFileSearch() }
+        }
+    }
+    @discardableResult
+    func addAttachments(_ urls: [URL], to key: String) async -> Bool {
+        guard !urls.isEmpty, !importingAttachments.contains(key) else { return false }
         guard (draftAttachments[key]?.count ?? 0) + urls.count <= 10 else {
-            lastError = "每条消息最多附加 10 个文件。"; return
+            lastError = "每条消息最多附加 10 个文件。"; return false
         }
         importingAttachments.insert(key)
         let scoped = urls.filter { $0.startAccessingSecurityScopedResource() }
@@ -422,7 +462,8 @@ final class BridgeService: ObservableObject {
             let files = try JSONDecoder().decode([MessageAttachment].self, from: JSONSerialization.data(withJSONObject: result))
             draftAttachments[key, default: []].append(contentsOf: files)
             lastError = nil
-        } catch { lastError = error.localizedDescription }
+            return true
+        } catch { lastError = error.localizedDescription; return false }
     }
     func removeAttachment(_ id: String) {
         draftAttachments[draftKey]?.removeAll { $0.id == id }

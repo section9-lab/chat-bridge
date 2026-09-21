@@ -51,8 +51,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         service.start()
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .keyDown]) { [weak self] event in
             guard let self else { return event }
-            if event.type == .keyDown && event.keyCode == 53 && self.panel?.isVisible == true && !self.service.choosingFiles {
-                self.hidePanel(); return nil
+            if event.type == .keyDown && event.keyCode == 53 && self.panel?.isVisible == true {
+                if (event.window?.firstResponder as? NSTextView)?.hasMarkedText() == true { return event }
+                if self.service.fileMention != nil { self.service.dismissFileSearch() } else { self.hidePanel() }
+                return nil
             }
             if event.type != .keyDown && event.window !== self.panel && event.window !== self.statusItem.button?.window {
                 self.hidePanel()
@@ -109,7 +111,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             content.rootView.dashboardTrailingInset = max(0, min(width - 30, panel.frame.maxX - anchor.midX - 15))
         }
     }
-    private func hidePanel() { if !service.choosingFiles { panel?.orderOut(nil) } }
+    private func hidePanel() {
+        if panel?.isVisible == true { service.dismissFileSearch() }
+        panel?.orderOut(nil)
+    }
     func showMainWindow() {
         hidePanel()
         NSApp.setActivationPolicy(.regular)

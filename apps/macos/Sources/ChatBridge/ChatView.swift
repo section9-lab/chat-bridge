@@ -88,7 +88,7 @@ struct ChatView: View {
     var workspace = false
     var openDashboard: () -> Void = {}
     var dashboardTrailingInset: CGFloat = 1
-    @FocusState private var focused: Bool
+    @State private var composerFocusRequest = 0
     @State private var choosingSession = false
     @State private var dashboardHovered = false
     private var ready: Bool { service.canSend }
@@ -135,7 +135,10 @@ struct ChatView: View {
                 FrostedMaterial(cornerRadius: 0, maskImage: MaterialMasks.feathered).opacity(0.24)
             }
         }
-        .onExitCommand(perform: close)
+        .onExitCommand {
+            if service.fileMention != nil { service.dismissFileSearch() } else { close() }
+        }
+        .onChange(of: service.draftKey) { _, _ in service.dismissFileSearch() }
     }
     private var workspaceHeader: some View {
         HStack(spacing: 9) {
@@ -292,6 +295,7 @@ struct ChatView: View {
     }
     private var composer: some View {
         VStack(alignment: .leading, spacing: 10) {
+            if service.fileMention != nil { fileSuggestions }
             if !attachments.isEmpty {
                 ScrollView(.horizontal) {
                     HStack(spacing: 6) {
@@ -304,22 +308,31 @@ struct ChatView: View {
                 }.scrollIndicators(.hidden)
             }
             HStack(alignment: .bottom, spacing: 12) {
-                TextField(ready ? "发送给 " + service.displayName(service.viewedAgent) + "…" : "连接就绪后即可发送", text: draft, axis: .vertical)
-                    .textFieldStyle(.plain).font(.system(size: workspace ? 15 : 14)).lineLimit(1...5)
-                    .focused($focused).disabled(!ready)
-                    .onSubmit { send() }
-                    .accessibilityLabel("会话消息")
-                    .help("输入 @ 选择文件")
-                    .frame(minHeight: workspace ? nil : 52, alignment: .topLeading)
-                Button(action: service.chooseFiles) {
+                Button {
+                    service.beginFileSearch()
+                    composerFocusRequest += 1
+                } label: {
                     if service.importingAttachments.contains(service.draftKey) {
                         ProgressView().controlSize(.small)
                     } else {
                         Image(systemName: "paperclip").font(.system(size: 17))
                     }
                 }
-                .buttonStyle(.plain).help("添加文件（@）").accessibilityLabel("添加文件")
+                .buttonStyle(.plain).help("搜索文件（@）").accessibilityLabel("添加文件")
                 .disabled(!ready || composingBusy)
+                ComposerTextView(text: draft.wrappedValue,
+                    selection: service.draftSelections[service.draftKey] ?? NSRange(location: (draft.wrappedValue as NSString).length, length: 0),
+                    enabled: ready && !composingBusy, fontSize: workspace ? 15 : 14,
+                    minimumHeight: workspace ? 22 : 52, focusRequest: composerFocusRequest,
+                    change: { service.updateDraft($0, selection: $1, composing: $2) }, command: composerCommand)
+                    .overlay(alignment: .topLeading) {
+                        if draft.wrappedValue.isEmpty {
+                            Text(ready ? "发送给 " + service.displayName(service.viewedAgent) + "…" : "连接就绪后即可发送")
+                                .font(.system(size: workspace ? 15 : 14)).foregroundStyle(.tertiary)
+                                .allowsHitTesting(false).accessibilityHidden(true)
+                        }
+                    }
+                    .help("输入 @ 和文件名搜索附件")
                 Button(action: send) {
                     if workspace {
                         HStack(spacing: 7) {
@@ -332,7 +345,7 @@ struct ChatView: View {
                         Image(systemName: "arrow.up.circle.fill").font(.system(size: 26, weight: .light))
                     }
                 }
-                .buttonStyle(.plain).disabled(!ready || composingBusy ||
+                .buttonStyle(.plain).disabled(!ready || composingBusy || service.fileMention != nil ||
                     draft.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.isEmpty)
                 .keyboardShortcut(.return, modifiers: .command).help("发送消息")
             }
@@ -340,6 +353,70 @@ struct ChatView: View {
         .padding(.horizontal, workspace ? 16 : 20).padding(.vertical, workspace ? 14 : 16)
         .background { if !workspace { FrostedBubble(cornerRadius: 28) } }
         .padding(workspace ? 14 : 0)
+    }
+    private var fileSuggestions: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(service.fileMention?.query.trimmingCharacters(in: .whitespaces).isEmpty == true ? "最近的文件" : "匹配的文件")
+                Spacer()
+                if service.searchingFiles { ProgressView().controlSize(.mini) }
+                Button { service.dismissFileSearch() } label: { Image(systemName: "xmark") }
+                    .buttonStyle(.plain).accessibilityLabel("关闭文件建议")
+            }.font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary).padding(.horizontal, 6)
+            if service.fileSuggestions.isEmpty {
+                Text(service.searchingFiles ? "正在搜索文件名…" : "没有找到匹配文件，试试其他文件名")
+                    .font(.system(size: 12)).foregroundStyle(.secondary).padding(.vertical, 10).padding(.horizontal, 6)
+            } else {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(spacing: 2) {
+                            ForEach(Array(service.fileSuggestions.enumerated()), id: \.element.id) { index, file in
+                                Button { service.attachSuggestedFile(file); composerFocusRequest += 1 } label: {
+                                    HStack(spacing: 8) {
+                                        Image(systemName: "doc").font(.system(size: 16)).foregroundStyle(.secondary)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(file.name).font(.system(size: 12, weight: .medium)).lineLimit(1).truncationMode(.middle)
+                                            Text(file.location).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                                        }
+                                        Spacer(minLength: 0)
+                                        Text(ByteCountFormatter.string(fromByteCount: Int64(file.size), countStyle: .file))
+                                            .font(.system(size: 10)).foregroundStyle(.secondary)
+                                    }.padding(6).frame(maxWidth: .infinity, alignment: .leading)
+                                        .background(index == service.highlightedFile ? Color.accentColor.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 7))
+                                        .contentShape(Rectangle())
+                                }.buttonStyle(.plain).disabled(composingBusy)
+                                    .accessibilityLabel("添加文件：" + file.name + "，" + file.location)
+                                    .id(file.id)
+                            }
+                        }
+                    }.frame(height: min(CGFloat(service.fileSuggestions.count) * 44, 176))
+                    .onChange(of: service.highlightedFile) { _, index in
+                        if service.fileSuggestions.indices.contains(index) { proxy.scrollTo(service.fileSuggestions[index].id) }
+                    }
+                }
+            }
+            Text(service.fileSearchIncomplete ? "部分目录未完成搜索 · ↑↓ 选择 · ↵ 添加 · Esc 关闭" : "当前项目、桌面、文稿、下载 · ↑↓ ↵ 选择")
+                .font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(2).padding(.horizontal, 6)
+        }
+        .padding(6).background(.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
+    }
+    private func composerCommand(_ command: Selector) -> Bool {
+        if service.fileMention != nil {
+            switch command {
+            case #selector(NSResponder.moveUp(_:)): service.moveFileHighlight(-1)
+            case #selector(NSResponder.moveDown(_:)): service.moveFileHighlight(1)
+            case #selector(NSResponder.insertNewline(_:)), #selector(NSResponder.insertTab(_:)):
+                if service.fileSuggestions.indices.contains(service.highlightedFile) {
+                    service.attachSuggestedFile(service.fileSuggestions[service.highlightedFile])
+                }
+            case #selector(NSResponder.cancelOperation(_:)): service.dismissFileSearch()
+            default: return false
+            }
+            return true
+        }
+        if command == #selector(NSResponder.insertNewline(_:)) { send(); return true }
+        if command == #selector(NSResponder.cancelOperation(_:)) { close(); return true }
+        return false
     }
     private var workspaceEmptyState: some View {
         let agent = Agent.find(service.viewedAgent)
@@ -388,7 +465,8 @@ struct ChatView: View {
     }
     private func send() {
         let text = draft.wrappedValue
-        guard ready, !composingBusy, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return }
+        guard ready, !composingBusy, service.fileMention == nil,
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return }
         service.send(text, clearDraft: true)
     }
 }

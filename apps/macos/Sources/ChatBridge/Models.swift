@@ -53,6 +53,7 @@ struct SessionSummary: Decodable, Identifiable {
     var agent: String
     var mode: String
     var projectId: String?
+    var cwd: String?
 }
 struct ProjectSummary: Decodable, Identifiable {
     var id: String
