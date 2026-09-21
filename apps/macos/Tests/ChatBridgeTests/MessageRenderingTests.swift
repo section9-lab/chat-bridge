@@ -1,9 +1,80 @@
 import AppKit
+import AVKit
 import SwiftUI
 import XCTest
 @testable import ChatBridge
 
 final class MessageRenderingTests: XCTestCase {
+    @MainActor
+    func testLocalMediaLinksHaveVisiblePreviewsInBothConversationSurfaces() async throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        for workspace in [false, true] {
+            for (name, text) in [
+                ("image-link", "查看 [图片](\(root.appendingPathComponent("docs/assets/chat-bridge-demo-poster.png").absoluteString))"),
+                ("video-link", "查看 [试玩视频](\(root.appendingPathComponent("docs/assets/chat-bridge-demo.mp4").absoluteString))"),
+                ("markdown-image", "![图片](\(root.appendingPathComponent("docs/assets/chat-bridge-demo-poster.png").path))"),
+                ("missing-image", "[已移动的图片](/tmp/chat-bridge-missing-\(UUID().uuidString).png)"),
+            ] {
+                let service = BridgeService()
+                service.state.messages = [Message(id: "media", sessionId: "fixture", role: "assistant",
+                    text: text)]
+                let (window, content) = host(ChatView(service: service, settings: {}, close: {}, workspace: workspace),
+                                             width: workspace ? 720 : 380, height: 700)
+                defer { window.close() }
+                try await Task.sleep(nanoseconds: 400_000_000)
+                content.layoutSubtreeIfNeeded()
+                let card = try XCTUnwrap(descendants(content).compactMap { $0 as? NSVisualEffectView }
+                    .first { $0.layer?.cornerRadius == 22 })
+                XCTAssertGreaterThan(card.bounds.height, 140, "\(name) must have a visible media preview, not only a text link")
+                XCTAssertLessThanOrEqual(card.bounds.width, workspace ? 640 : 310)
+                XCTAssertFalse(descendants(content).contains { $0 is AVPlayerView }, "Video must not autoplay")
+                if let directory = ProcessInfo.processInfo.environment["CHAT_BRIDGE_RENDER_OUTPUT"] {
+                    let url = URL(fileURLWithPath: directory, isDirectory: true)
+                    try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+                    for dark in [false, true] {
+                        window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+                        try await Task.sleep(nanoseconds: 100_000_000)
+                        let bitmap = try XCTUnwrap(content.bitmapImageRepForCachingDisplay(in: content.bounds))
+                        content.cacheDisplay(in: content.bounds, to: bitmap)
+                        try bitmap.representation(using: .png, properties: [:])?.write(to: url.appendingPathComponent(
+                            "\(workspace ? "dashboard" : "panel")-\(name)-\(dark ? "dark" : "light").png"))
+                    }
+                }
+            }
+        }
+    }
+
+    @MainActor
+    func testVideoStartsOnClickAndPausesWhenRemoved() async throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let media = try XCTUnwrap(MessageMedia(url: root.appendingPathComponent("docs/assets/chat-bridge-demo.mp4"), title: "演示"))
+        let (window, content) = host(AnyView(MessageMediaView(media: media)), width: 420, height: 320)
+        defer { window.close() }
+        try await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertFalse(descendants(content).contains { $0 is AVPlayerView })
+        let location = content.convert(NSPoint(x: content.bounds.midX, y: content.bounds.midY), to: nil)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            let event = try XCTUnwrap(NSEvent.mouseEvent(with: type, location: location, modifierFlags: [],
+                timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+            window.sendEvent(event)
+        }
+        try await Task.sleep(nanoseconds: 100_000_000)
+        let playerView = try XCTUnwrap(descendants(content).compactMap { $0 as? AVPlayerView }.first)
+        let player = try XCTUnwrap(playerView.player)
+        player.isMuted = true
+        for _ in 0..<50 {
+            if player.currentTime().seconds > 0 { break }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        XCTAssertEqual(player.currentItem?.status, .readyToPlay)
+        XCTAssertGreaterThan(player.currentTime().seconds, 0, "The real video must advance after clicking play")
+        content.rootView = AnyView(EmptyView())
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(player.rate, 0, "Removing the media view must stop playback")
+    }
+
     @MainActor
     func testGrowingMessageFollowsTheSameBubbleInBothConversationSurfaces() async throws {
         for workspace in [false, true] {

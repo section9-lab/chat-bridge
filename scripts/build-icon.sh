@@ -3,6 +3,11 @@ set -euo pipefail
 BRIDGE_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BRIDGE_ICON_TMP="$(mktemp -d)"
 trap 'rm -rf "$BRIDGE_ICON_TMP"' EXIT
-swift "$BRIDGE_ROOT/scripts/generate-app-icon.swift" "$BRIDGE_ICON_TMP/AppIcon.iconset"
-iconutil -c icns "$BRIDGE_ICON_TMP/AppIcon.iconset" -o "$BRIDGE_ROOT/apps/macos/Resources/AppIcon.icns"
-printf 'Updated AppIcon.icns from the brand master.\n'
+# Icon Composer sources require Xcode 26+. Commit both compiled resources so
+# release builds can keep using Xcode 16.4 and the macOS 14 deployment target.
+xcrun actool "$BRIDGE_ROOT/apps/macos/Resources/AppIcon.icon" \
+  --platform macosx --minimum-deployment-target 14.0 --app-icon AppIcon \
+  --compile "$BRIDGE_ICON_TMP" --output-partial-info-plist "$BRIDGE_ICON_TMP/icon-info.plist"
+cp "$BRIDGE_ICON_TMP/AppIcon.icns" "$BRIDGE_ROOT/apps/macos/Resources/AppIcon.icns"
+cp "$BRIDGE_ICON_TMP/Assets.car" "$BRIDGE_ROOT/apps/macos/Resources/Assets.car"
+printf 'Updated AppIcon.icns and Assets.car from the native icon source.\n'

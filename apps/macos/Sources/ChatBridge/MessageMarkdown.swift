@@ -5,10 +5,17 @@ struct MessageMarkdown: View, Equatable {
     var text: String
 
     var body: some View {
-        Markdown(text)
-            .markdownTheme(Self.theme)
-            .markdownSoftBreakMode(.lineBreak)
-            .textSelection(.enabled)
+        VStack(alignment: .leading, spacing: 10) {
+            Markdown(text)
+                .markdownTheme(Self.theme)
+                .markdownImageProvider(MessageImageProvider())
+                .markdownInlineImageProvider(MessageInlineImageProvider())
+                .markdownSoftBreakMode(.lineBreak)
+                .textSelection(.enabled)
+            ForEach(MessageMedia.links(in: text)) { media in
+                MessageMediaView(media: media)
+            }
+        }
     }
 
     private static let theme = Theme.basic

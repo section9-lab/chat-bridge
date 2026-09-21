@@ -21,13 +21,14 @@ assert info["CFBundleShortVersionString"] == version["app_version"], "Wrong app 
 assert info["ChatBridgeReleaseVersion"] == version["version"], "Wrong release version"
 assert re.fullmatch(r"[1-9][0-9]*", info["CFBundleVersion"]), "Invalid build number"
 assert info["LSMinimumSystemVersion"] == "14.0", "Unexpected minimum macOS version"
+assert info["CFBundleIconName"] == "AppIcon", "Missing native app icon name"
 service = contents / "Resources/service"
 assert json.loads((service / "package.json").read_text())["version"] == version["version"], "Wrong service version"
 lock = json.loads((service / "package-lock.json").read_text())
 assert lock["version"] == lock["packages"][""]["version"] == version["version"], "Wrong service lock version"
 
 required = ["MacOS/ChatBridge", "Resources/runtime/node", "Resources/runtime/LICENSE",
-            "Resources/AppIcon.icns", "Resources/LICENSE",
+            "Resources/AppIcon.icns", "Resources/Assets.car", "Resources/LICENSE",
             "Resources/ChatBridge_ChatBridge.bundle/AgentIcons/codex-light.png",
             "Resources/service/dist/src/main.js",
             "Resources/service/node_modules/better-sqlite3/build/Release/better_sqlite3.node"]

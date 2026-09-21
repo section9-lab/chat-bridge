@@ -1,0 +1,39 @@
+{
+  "fill": {
+    "linear-gradient": [
+      "srgb:0.52941,0.68235,0.96078,1.00000",
+      "srgb:0.40000,0.58039,0.91765,1.00000"
+    ]
+  },
+  "groups": [
+    {
+      "name": "Mascot",
+      "layers": [
+        {
+          "image-name": "Mascot.png",
+          "name": "Chat Bridge",
+          "glass": false,
+          "position": {
+            "scale": 0.8,
+            "translation-in-points": [
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.2
+      },
+      "specular": false,
+      "translucency": {
+        "enabled": false,
+        "value": 0
+      }
+    }
+  ],
+  "supported-platforms": {
+    "squares": "shared"
+  }
+}
