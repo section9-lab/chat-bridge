@@ -597,7 +597,8 @@ export class BridgeCore {
       })),
       tasks: [...activeTasks, ...recentTasks].map((job) => ({
           id: job.id, text: job.text.slice(0, 500), status: job.status, target: this.resolvedTarget(job.target), question: job.error,
-          canAnswer: this.menuKey(job.origin) === this.menuKey(origin!), canStop: Boolean(this.adapters[job.target.agent]?.stopTurn) })),
+          canAnswer: this.menuKey(job.origin) === this.menuKey(origin!) && this.routeIsOpen(job),
+          canStop: Boolean(this.adapters[job.target.agent]?.stopTurn) })),
       history: this.list<Message>("message").filter((message) => message.sessionId === current.sessionId).slice(-6)
         .map(({ role, text }) => ({ role, text: text.slice(0, 1000) })) };
   }
@@ -620,6 +621,17 @@ export class BridgeCore {
   }
   private textMenus(origin: Origin): TextMenu[] {
     return this.list<TextMenu>("text-menu").filter(menu => menu.active && this.menuKey(menu.origin) === this.menuKey(origin));
+  }
+  // A routing question the user can no longer answer must also stop being offered to the router.
+  private routeIsOpen(job: Job): boolean {
+    return job.status === "awaiting_route" && (job.routing?.expiresAt ?? 0) > Date.now();
+  }
+  sweepExpiredRoutes(): void {
+    for (const job of this.list<Job>("job")) {
+      if (job.status !== "awaiting_route" || this.routeIsOpen(job)) continue;
+      this.closeTextMenus(job.id);
+      this.record("job", job.id, { ...job, status: "cancelled", error: "目标选择已过期，任务未发送。" });
+    }
   }
   private closeTextMenus(jobId: string): void {
     for (const menu of this.list<TextMenu>("text-menu")) {
@@ -917,6 +929,7 @@ export class BridgeCore {
       if (!original || original.status !== "awaiting_route" || this.menuKey(original.origin) !== this.menuKey(job.origin)) {
         throw new BridgeError("INVALID_STATE", "原问题已处理，请重新说明要处理的任务。");
       }
+      if (!this.routeIsOpen(original)) throw new BridgeError("STALE_MENU", "原问题的目标选择已过期，请重新说明要处理的任务。");
       const text = original.text + "\n\n路由询问：" + original.error + "\n补充目标信息：" + job.text;
       if (Buffer.byteLength(text) > 256 * 1024) throw new BridgeError("INVALID_INPUT", "补充内容过长，请缩短后重试。");
       const attachments = [...new Map([...(original.attachments ?? []), ...(job.attachments ?? [])].map(file => [file.id, file])).values()];

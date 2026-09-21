@@ -48,6 +48,7 @@ export function createService(input: Readable, output: Writable, databasePath: s
   let closed = false, started = false, timer: ReturnType<typeof setTimeout> | undefined;
   let imessageTimer: ReturnType<typeof setInterval> | undefined;
   let probeTimer: ReturnType<typeof setInterval> | undefined;
+  let sweepTimer: ReturnType<typeof setInterval> | undefined;
   const running = new Set<string>();
   const object = (value: unknown): Record<string, unknown> => {
     if (!value || Array.isArray(value) || typeof value !== "object") throw new BridgeError("INVALID_INPUT", "需要有效的参数对象。");
@@ -237,6 +238,8 @@ export function createService(input: Readable, output: Writable, databasePath: s
       started = true;
       void core.probeAgents();
       probeTimer = setInterval(() => { void core.probeAgents(); }, 30_000);
+      core.sweepExpiredRoutes();
+      sweepTimer = setInterval(() => core.sweepExpiredRoutes(), 60_000);
       runPending();
       void channels.restore().then(tick).catch(() => { if (!closed) peer.close(); });
       void imessage.restore().then(async () => {
@@ -247,6 +250,6 @@ export function createService(input: Readable, output: Writable, databasePath: s
         }, 1000);
       }).catch(() => { if (!closed) peer.event("service.error", {}); });
     },
-    close() { closed = true; clearTimeout(timer); clearInterval(imessageTimer); clearInterval(probeTimer); channels.close(); void imessage.close().catch(() => {}); core.close(); for (const agent of Object.values(agents)) agent.close?.(); peer.close(); }
+    close() { closed = true; clearTimeout(timer); clearInterval(imessageTimer); clearInterval(probeTimer); clearInterval(sweepTimer); channels.close(); void imessage.close().catch(() => {}); core.close(); for (const agent of Object.values(agents)) agent.close?.(); peer.close(); }
   };
 }
