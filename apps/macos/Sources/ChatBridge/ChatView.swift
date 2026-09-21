@@ -198,7 +198,7 @@ struct ChatView: View {
                                         withAnimation { proxy.scrollTo(quote.id, anchor: .center) }
                                     }
                                 } label: {
-                                    Label(quote.text, systemImage: "arrowshape.turn.up.left.fill")
+                                    Label(quote.text, systemImage: "arrowshape.turn.up.right.fill")
                                         .font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
                                         .padding(.leading, 6)
                                 }
