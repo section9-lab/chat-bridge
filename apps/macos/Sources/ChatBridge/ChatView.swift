@@ -98,7 +98,7 @@ struct ChatView: View {
         Binding(get: { service.drafts[service.draftKey] ?? "" }, set: { service.drafts[service.draftKey] = $0 })
     }
     var body: some View {
-        VStack(spacing: workspace ? 0 : 18) {
+        VStack(spacing: 0) {
             if workspace {
                 workspaceHeader
                 Divider().opacity(0.45)
@@ -152,6 +152,9 @@ struct ChatView: View {
             } label: { Image(systemName: "ellipsis") }
             .menuStyle(.borderlessButton).frame(width: 24).help("会话菜单")
             .disabled(Agent.find(service.viewedAgent).comingSoon || !service.isRunning)
+            .popover(isPresented: $choosingSession, arrowEdge: .top) {
+                SessionBrowser(service: service) { choosingSession = false }
+            }
         }
         .buttonStyle(.plain).padding(.horizontal, 22).padding(.vertical, 18)
     }
@@ -260,50 +263,27 @@ struct ChatView: View {
         }
     }
     private var composer: some View {
-        VStack(spacing: 12) {
-            HStack(alignment: .bottom, spacing: 12) {
-                TextField(ready ? "发送给 " + service.displayName(service.viewedAgent) + "…" : "连接就绪后即可发送", text: draft, axis: .vertical)
-                    .textFieldStyle(.plain).font(.system(size: workspace ? 15 : 14)).lineLimit(1...5)
-                    .focused($focused).disabled(!ready)
-                    .onSubmit { send() }
-                    .accessibilityLabel("会话消息")
-                    .frame(minHeight: workspace ? nil : 52, alignment: .topLeading)
-                Button(action: send) {
-                    if workspace {
-                        HStack(spacing: 7) {
-                            Text("发送").font(.system(size: 13, weight: .medium))
-                            Image(systemName: "return").font(.system(size: 12))
-                        }
-                        .padding(.horizontal, 14).padding(.vertical, 9)
-                        .background(.primary.opacity(0.06), in: Capsule())
-                    } else {
-                        Image(systemName: "arrow.up.circle.fill").font(.system(size: 26, weight: .light))
+        HStack(alignment: .bottom, spacing: 12) {
+            TextField(ready ? "发送给 " + service.displayName(service.viewedAgent) + "…" : "连接就绪后即可发送", text: draft, axis: .vertical)
+                .textFieldStyle(.plain).font(.system(size: workspace ? 15 : 14)).lineLimit(1...5)
+                .focused($focused).disabled(!ready)
+                .onSubmit { send() }
+                .accessibilityLabel("会话消息")
+                .frame(minHeight: workspace ? nil : 52, alignment: .topLeading)
+            Button(action: send) {
+                if workspace {
+                    HStack(spacing: 7) {
+                        Text("发送").font(.system(size: 13, weight: .medium))
+                        Image(systemName: "return").font(.system(size: 12))
                     }
+                    .padding(.horizontal, 14).padding(.vertical, 9)
+                    .background(.primary.opacity(0.06), in: Capsule())
+                } else {
+                    Image(systemName: "arrow.up.circle.fill").font(.system(size: 26, weight: .light))
                 }
-                .buttonStyle(.plain).disabled(!ready || draft.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .keyboardShortcut(.return, modifiers: .command).help("发送消息")
             }
-            HStack(spacing: 8) {
-                Button { choosingSession = true } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: "folder")
-                        Text(service.viewedSession?.title ?? service.state.projects?.first(where: {
-                            $0.agent == service.viewedAgent && $0.id == service.state.selection.projectId
-                        })?.name ?? "选择项目与会话").lineLimit(1).truncationMode(.middle)
-                        Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold))
-                    }.font(.system(size: 11)).foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain).accessibilityLabel("切换项目与会话")
-                .disabled(!service.isRunning || Agent.find(service.viewedAgent).comingSoon)
-                .popover(isPresented: $choosingSession, arrowEdge: .top) {
-                    SessionBrowser(service: service) { choosingSession = false }
-                }
-                Spacer(minLength: 4)
-                Button { Task { _ = await service.navigate("/new") } } label: {
-                    Image(systemName: "square.and.pencil").font(.system(size: 13)).foregroundStyle(.secondary)
-                }.buttonStyle(.plain).help("在当前项目新建会话").accessibilityLabel("新建会话")
-                    .disabled(!ready)
-            }
+            .buttonStyle(.plain).disabled(!ready || draft.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .keyboardShortcut(.return, modifiers: .command).help("发送消息")
         }
         .padding(.horizontal, workspace ? 16 : 20).padding(.vertical, workspace ? 14 : 16)
         .background { if !workspace { FrostedBubble(cornerRadius: 28) } }
