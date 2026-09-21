@@ -77,7 +77,7 @@ Utiliza el inicio de sesión y la configuración del modelo de cada agente en tu
 ## Antes de empezar
 
 - Requiere **macOS 14 o posterior**, con el Mac despierto, conectado a internet y Chat Bridge en ejecución. iMessage también necesita una sesión en Mensajes y acceso total al disco. La compatibilidad con bases de datos antiguas de Mensajes aún debe verificarse.
-- Actualmente solo se admite **texto como entrada**. Los audios, imágenes y archivos recibidos no se ejecutan como tareas. Los archivos de resultados locales que cumplan los requisitos pueden devolverse al chat de origen.
+- En Mac, escribe **@** o pulsa el clip para adjuntar archivos (hasta 10 por mensaje y 50 MiB por archivo). Las respuestas citan el mensaje original. WeChat e iMessage siguen admitiendo solo **texto como entrada**; los audios, imágenes y archivos recibidos no se ejecutan como tareas. Los archivos de resultados compatibles pueden devolverse al chat de origen.
 - Los mensajes pueden provocar cambios en archivos, ejecutar comandos y acceder a la red. Las conversaciones de Codex／Claude Code creadas o retomadas por Bridge usan permisos completos de ejecución de forma predeterminada. Vincula únicamente tus propias cuentas de confianza.
 - El estado de las conversaciones se guarda en el Mac. Los mensajes pasan por los servicios de mensajería y del agente que elijas. El enrutamiento inteligente también envía el mensaje y los datos pertinentes del destino al proveedor configurado.
 - Si el resultado de un envío es incierto, no se reenvía ni se ejecuta de nuevo automáticamente. La interfaz de la aplicación está actualmente, en su mayor parte, en chino.

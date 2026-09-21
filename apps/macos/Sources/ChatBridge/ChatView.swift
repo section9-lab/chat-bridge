@@ -96,8 +96,10 @@ struct ChatView: View {
         service.state.selection.agent == service.viewedAgent ? service.state.messages : []
     }
     private var draft: Binding<String> {
-        Binding(get: { service.drafts[service.draftKey] ?? "" }, set: { service.drafts[service.draftKey] = $0 })
+        Binding(get: { service.drafts[service.draftKey] ?? "" }, set: { service.updateDraft($0) })
     }
+    private var attachments: [MessageAttachment] { service.draftAttachments[service.draftKey] ?? [] }
+    private var composingBusy: Bool { service.importingAttachments.contains(service.draftKey) || service.sending.contains(service.draftKey) }
     var body: some View {
         VStack(spacing: 0) {
             if workspace {
@@ -186,11 +188,34 @@ struct ChatView: View {
                         }
                     }
                     ForEach(messages) { message in
-                        conversationMessage(user: message.role == "user") {
-                            VStack(alignment: .leading, spacing: 8) {
-                                MessageMarkdown(text: message.text).equatable()
-                                if message.truncated == true {
-                                    Text("此处为消息摘要").font(.caption).foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 5) {
+                            if message.role == "assistant", let quote = message.replyTo {
+                                Button {
+                                    if messages.contains(where: { $0.id == quote.id }) {
+                                        withAnimation { proxy.scrollTo(quote.id, anchor: .center) }
+                                    }
+                                } label: {
+                                    Label(quote.text, systemImage: "arrowshape.turn.up.left.fill")
+                                        .font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
+                                        .padding(.leading, 6)
+                                }
+                                .buttonStyle(.plain).help(quote.text)
+                                .accessibilityLabel("回复：" + quote.text)
+                                .frame(maxWidth: workspace ? 640 : 310, alignment: .leading)
+                            }
+                            conversationMessage(user: message.role == "user") {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    MessageMarkdown(text: message.text).equatable()
+                                    ForEach(message.attachments ?? []) { file in
+                                        if let media = MessageMedia(url: file.url, title: file.name) {
+                                            MessageMediaView(media: media)
+                                        } else {
+                                            AttachmentChip(file: file)
+                                        }
+                                    }
+                                    if message.truncated == true {
+                                        Text("此处为消息摘要").font(.caption).foregroundStyle(.secondary)
+                                    }
                                 }
                             }
                         }.id(message.id)
@@ -266,27 +291,51 @@ struct ChatView: View {
         }
     }
     private var composer: some View {
-        HStack(alignment: .bottom, spacing: 12) {
-            TextField(ready ? "发送给 " + service.displayName(service.viewedAgent) + "…" : "连接就绪后即可发送", text: draft, axis: .vertical)
-                .textFieldStyle(.plain).font(.system(size: workspace ? 15 : 14)).lineLimit(1...5)
-                .focused($focused).disabled(!ready)
-                .onSubmit { send() }
-                .accessibilityLabel("会话消息")
-                .frame(minHeight: workspace ? nil : 52, alignment: .topLeading)
-            Button(action: send) {
-                if workspace {
-                    HStack(spacing: 7) {
-                        Text("发送").font(.system(size: 13, weight: .medium))
-                        Image(systemName: "return").font(.system(size: 12))
+        VStack(alignment: .leading, spacing: 10) {
+            if !attachments.isEmpty {
+                ScrollView(.horizontal) {
+                    HStack(spacing: 6) {
+                        ForEach(attachments) { file in
+                            AttachmentChip(file: file) {
+                                service.removeAttachment(file.id)
+                            }
+                        }
                     }
-                    .padding(.horizontal, 14).padding(.vertical, 9)
-                    .background(.primary.opacity(0.06), in: Capsule())
-                } else {
-                    Image(systemName: "arrow.up.circle.fill").font(.system(size: 26, weight: .light))
-                }
+                }.scrollIndicators(.hidden)
             }
-            .buttonStyle(.plain).disabled(!ready || draft.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            .keyboardShortcut(.return, modifiers: .command).help("发送消息")
+            HStack(alignment: .bottom, spacing: 12) {
+                TextField(ready ? "发送给 " + service.displayName(service.viewedAgent) + "…" : "连接就绪后即可发送", text: draft, axis: .vertical)
+                    .textFieldStyle(.plain).font(.system(size: workspace ? 15 : 14)).lineLimit(1...5)
+                    .focused($focused).disabled(!ready)
+                    .onSubmit { send() }
+                    .accessibilityLabel("会话消息")
+                    .help("输入 @ 选择文件")
+                    .frame(minHeight: workspace ? nil : 52, alignment: .topLeading)
+                Button(action: service.chooseFiles) {
+                    if service.importingAttachments.contains(service.draftKey) {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "paperclip").font(.system(size: 17))
+                    }
+                }
+                .buttonStyle(.plain).help("添加文件（@）").accessibilityLabel("添加文件")
+                .disabled(!ready || composingBusy)
+                Button(action: send) {
+                    if workspace {
+                        HStack(spacing: 7) {
+                            Text("发送").font(.system(size: 13, weight: .medium))
+                            Image(systemName: "return").font(.system(size: 12))
+                        }
+                        .padding(.horizontal, 14).padding(.vertical, 9)
+                        .background(.primary.opacity(0.06), in: Capsule())
+                    } else {
+                        Image(systemName: "arrow.up.circle.fill").font(.system(size: 26, weight: .light))
+                    }
+                }
+                .buttonStyle(.plain).disabled(!ready || composingBusy ||
+                    draft.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.isEmpty)
+                .keyboardShortcut(.return, modifiers: .command).help("发送消息")
+            }
         }
         .padding(.horizontal, workspace ? 16 : 20).padding(.vertical, workspace ? 14 : 16)
         .background { if !workspace { FrostedBubble(cornerRadius: 28) } }
@@ -339,8 +388,32 @@ struct ChatView: View {
     }
     private func send() {
         let text = draft.wrappedValue
-        guard ready, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard ready, !composingBusy, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return }
         service.send(text, clearDraft: true)
+    }
+}
+
+private struct AttachmentChip: View {
+    var file: MessageAttachment
+    var remove: (() -> Void)? = nil
+    var body: some View {
+        HStack(spacing: 6) {
+            Button { NSWorkspace.shared.open(file.url) } label: {
+                Label {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(file.name).font(.system(size: 12)).lineLimit(1).truncationMode(.middle)
+                        Text(ByteCountFormatter.string(fromByteCount: Int64(file.size), countStyle: .file))
+                            .font(.system(size: 10)).foregroundStyle(.secondary)
+                    }.frame(maxWidth: 170, alignment: .leading)
+                } icon: { Image(systemName: "doc") }
+            }.help(file.name).accessibilityLabel("附件：" + file.name)
+            if let remove {
+                Button(action: remove) { Image(systemName: "xmark").font(.system(size: 10, weight: .medium)) }
+                    .help("移除附件").accessibilityLabel("移除附件：" + file.name)
+            }
+        }
+        .buttonStyle(.plain).padding(8)
+        .background(.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
     }
 }
 

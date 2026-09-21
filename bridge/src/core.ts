@@ -8,6 +8,7 @@ import { defaultRoutingSettings, isConfidentRoute, routingProviders, routeAction
 import { outputProject, snapshotOutputs, type OutputAttachment } from "./outputs.js";
 import { createProjectDirectory, projectName } from "./projects.js";
 import { menuLine, renderTextMenu, textOptionIndex, type TextMenu, type TextOption, type TextView } from "./routing-options.js";
+import { attachmentLimit, importAttachments, type InputAttachment } from "./attachments.js";
 
 export const agentIDs = ["codex", "claude", "cursor", "grok", "opencode", "hermes"] as const;
 export const agentNames: Record<string, string> = { codex: "Codex", claude: "Claude Code", cursor: "Cursor", grok: "Grok", opencode: "OpenCode", hermes: "Hermes Agent" };
@@ -35,11 +36,13 @@ export type Job = {
     intent?: { choice: string; confidence: number; probability: number } };
   routeMessage?: string; receiptRevision?: number; followsJobId?: string;
   newProject?: { name: string; root?: string; projectId?: string };
+  attachments?: InputAttachment[];
 };
 export type Receipt = { jobId?: string; message?: string };
 type Selection = Target & { sessionId: string | null; creationKey: string | null; version: number; engaged: boolean };
 type Creation = { key: string; target: Target; status: string; sessionId?: string };
-type Message = { id: string; sessionId: string; role: string; text: string; createdAt: string };
+type Message = { id: string; sessionId: string; role: string; text: string; createdAt: string;
+  replyTo?: { id: string; text: string }; attachments?: InputAttachment[] };
 type ChoiceMenu = { kind: "project" | "session"; entries: { id: string; name: string }[]; offset: number;
   version: number; bindingEpoch?: number; expiresAt: number };
 export type OutboxEntry = { id: string; jobId?: string; origin: Origin; text: string; status: string; kind?: string; error?: string; batchId?: string; attachment?: OutputAttachment };
@@ -390,12 +393,48 @@ export class BridgeCore {
       for (const message of this.list<Message>("message").filter((m) => m.sessionId === sessionId)) {
         this.db.prepare("DELETE FROM records WHERE kind='message' AND id=?").run(message.id);
       }
+      let replyTo: Message["replyTo"];
+      const jobs = this.list<Job>("job").filter(job => job.sessionId === sessionId);
       for (const message of messages) {
         const id = "native:" + sessionId + ":" + message.id;
-        this.record("message", id, { ...message, id, sessionId });
+        const job = message.role === "user" ? jobs.find(job => this.prompt(job) === message.text) : undefined;
+        const item: Message = { ...message, id, sessionId, ...(job ? { text: job.text, attachments: job.attachments } : {}) };
+        if (item.role === "user") replyTo = this.quote(item.id, item.text);
+        else if (item.role === "assistant") item.replyTo = replyTo;
+        this.record("message", id, item);
       }
     })();
     this.changed();
+  }
+
+  importAttachments(paths: unknown): InputAttachment[] {
+    try {
+      const files = importAttachments(join(dirname(this.databasePath), "Attachments"), paths);
+      this.db.transaction(() => { for (const file of files) this.record("attachment", file.id, file); })();
+      return files;
+    } catch (error) {
+      throw new BridgeError("INVALID_ATTACHMENT", error instanceof Error && !("code" in error) ? error.message : "无法读取所选文件，请检查权限或重新选择。");
+    }
+  }
+  attachments(ids: unknown): InputAttachment[] {
+    if (ids === undefined) return [];
+    if (!Array.isArray(ids) || ids.length > attachmentLimit || ids.some(id => typeof id !== "string")) {
+      throw new BridgeError("INVALID_ATTACHMENT", "每条消息最多附加 10 个文件。");
+    }
+    return [...new Set<string>(ids)].map(id => {
+      const file = this.find<InputAttachment>("attachment", id);
+      if (!file) throw new BridgeError("INVALID_ATTACHMENT", "附件已不可用，请重新选择。");
+      return file;
+    });
+  }
+  private quote(id: string, text: string): NonNullable<Message["replyTo"]> {
+    return { id, text: text.replace(/\s+/gu, " ").trim().slice(0, 240).replace(/[\uD800-\uDBFF]$/, "") };
+  }
+  private prompt(job: Job): string {
+    const text = job.newProject ? "本次请求的项目目录已由 Chat Bridge 创建并登记：" + job.newProject.root +
+      "。当前会话已绑定此项目。请在该根目录完成任务，不要为同一项目再创建一层项目目录。\n\n用户原始提示词：\n" + job.text : job.text;
+    return job.attachments?.length ? text + "\n\n用户附加的文件（本机副本，请按任务需要读取）：\n" +
+      job.attachments.map(file => JSON.stringify({ name: file.name, path: file.path })).join("\n") : text;
   }
 
   catalog(agent: string, projectId?: string | null, query = "", offset = 0) {
@@ -472,7 +511,7 @@ export class BridgeCore {
     })();
   }
 
-  receive(origin: Origin, text: string, rejection?: string): Receipt {
+  receive(origin: Origin, text: string, rejection?: string, attachments: InputAttachment[] = []): Receipt {
     if (origin.kind !== "desktop") {
       if (!this.db.prepare("SELECT 1 FROM bindings WHERE kind=? AND account=? AND peer=?").get(origin.kind, origin.accountId, origin.peerId)) {
         throw new BridgeError("UNAUTHORIZED", "消息来源尚未绑定。");
@@ -489,7 +528,7 @@ export class BridgeCore {
     const previous = this.db.prepare("SELECT receipt FROM inbox WHERE event_key=?").get(key) as { receipt: string } | undefined;
     if (previous) return JSON.parse(previous.receipt) as Receipt;
     const receipt = this.db.transaction(() => {
-      const parsed = parseInput(text);
+      const parsed = attachments.length ? { kind: "message" as const, text } : parseInput(text);
       let result: Receipt;
       if (rejection) result = { message: rejection };
       else if (parsed.kind === "invalid") result = { message: parsed.message };
@@ -498,7 +537,7 @@ export class BridgeCore {
         result = typeof command === "string" ? { message: command } : command;
       }
       else {
-        const choice = this.answerProjectTrust(parsed.text.trim(), origin) ?? this.answerCorrection(parsed.text.trim(), origin) ??
+        const choice = attachments.length ? undefined : this.answerProjectTrust(parsed.text.trim(), origin) ?? this.answerCorrection(parsed.text.trim(), origin) ??
           this.answerTextOptions(parsed.text.trim(), origin) ?? this.answerRouting(parsed.text.trim(), origin) ??
           (/^\d+$/.test(parsed.text.trim()) ? this.chooseNumber(parsed.text.trim(), origin) : undefined);
         if (choice !== undefined) result = typeof choice === "string" ? { message: choice } : choice;
@@ -513,6 +552,7 @@ export class BridgeCore {
             if (!routing) this.put("selection", { ...target, engaged: true });
             const id = "J" + randomUUID().replaceAll("-", "").slice(0, 12);
             const job: Job = { id, origin, target, text: parsed.text, status: routing ? "routing" : "accepted", createdAt: new Date().toISOString(),
+              ...(attachments.length ? { attachments } : {}),
               ...(routing ? { routing: { intent: this.get<number>("intent") ?? 0 } } : {}) };
             this.record("job", id, job);
             result = { jobId: id };
@@ -851,6 +891,9 @@ export class BridgeCore {
         this.waitForRoute(job, chosen?.kind === "clarify" ? "这条消息希望交给哪个 Agent、项目或会话处理？" : this.routingQuestion(options), options);
         return;
       }
+      if (job.attachments?.length && !["send", "answer"].includes(chosen.kind)) {
+        throw new BridgeError("INVALID_ROUTE", "这条消息带有附件，请选择接收文件的目标。原消息和附件已保留。");
+      }
       this.db.transaction(() => this.applyRoute(job, chosen))();
       this.changed();
     } catch (error) {
@@ -876,7 +919,10 @@ export class BridgeCore {
       }
       const text = original.text + "\n\n路由询问：" + original.error + "\n补充目标信息：" + job.text;
       if (Buffer.byteLength(text) > 256 * 1024) throw new BridgeError("INVALID_INPUT", "补充内容过长，请缩短后重试。");
+      const attachments = [...new Map([...(original.attachments ?? []), ...(job.attachments ?? [])].map(file => [file.id, file])).values()];
+      if (attachments.length > attachmentLimit) throw new BridgeError("INVALID_ATTACHMENT", "补充后的附件超过 10 个，请分成不同任务发送。");
       this.record("job", original.id, { ...original, text, status: "routing", error: undefined,
+        ...(attachments.length ? { attachments } : {}),
         routing: { intent: this.get<number>("intent") ?? 0 } });
       job.status = "completed"; job.followsJobId = original.id; delete job.routing; delete job.error;
       this.record("job", job.id, job); return;
@@ -1310,6 +1356,7 @@ export class BridgeCore {
       messages.set(value.id, value);
       const id = job.id + ":assistant:" + value.id;
       pending.set(id, { id, sessionId: job.sessionId!, role: "assistant", text: value.text,
+        replyTo: this.quote(job.id + ":user", job.text),
         createdAt: pending.get(id)?.createdAt ?? this.find<Message>("message", id)?.createdAt ?? new Date().toISOString(), completed: value.completed });
       if (value.completed) flush();
       else timer ??= setTimeout(flush, 100);
@@ -1335,8 +1382,7 @@ export class BridgeCore {
       })();
       this.changed();
       dispatched = true;
-      const prompt = job.newProject ? "本次请求的项目目录已由 Chat Bridge 创建并登记：" + job.newProject.root +
-        "。当前会话已绑定此项目。请在该根目录完成任务，不要为同一项目再创建一层项目目录。\n\n用户原始提示词：\n" + job.text : job.text;
+      const prompt = this.prompt(job);
       const result = await this.adapters[job.target.agent]!.sendTurn(session, prompt, job.id, {
         queued: () => {
           if (this.closed) return;
@@ -1350,7 +1396,8 @@ export class BridgeCore {
           if (this.closed) return;
           const current = this.find<Job>("job", job.id)!;
           this.record("job", job.id, { ...current, turnId, status: current.status === "stopping" ? "stopping" : "running" });
-          this.record("message", job.id + ":user", { id: job.id + ":user", sessionId: session.id, role: "user", text: job.text, createdAt: new Date().toISOString() });
+          this.record("message", job.id + ":user", { id: job.id + ":user", sessionId: session.id, role: "user", text: job.text,
+            attachments: job.attachments, createdAt: new Date().toISOString() });
           this.changed();
         },
         message: update,
@@ -1369,7 +1416,8 @@ export class BridgeCore {
         this.expireApprovals(job.id);
         for (const [role, text] of [["user", job.text], ...(messages.size ? [] : [["assistant", result.text]])]) {
           const id = job.id + ":" + role;
-          this.record("message", id, { id, sessionId: session.id, role, text, createdAt: new Date().toISOString() });
+          this.record("message", id, { id, sessionId: session.id, role, text, createdAt: new Date().toISOString(),
+            ...(role === "user" ? { attachments: job.attachments } : { replyTo: this.quote(job.id + ":user", job.text) }) });
         }
         if (!messages.size) this.enqueueReply(job.id, job.origin, (job.error ? job.id + " · " + job.error + "\n" : "") + result.text, "final", job.id);
         else if (job.error && job.origin.kind !== "desktop") this.enqueueReply(job.id + ":status", job.origin, job.error, "status", job.id);

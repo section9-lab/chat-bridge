@@ -13,6 +13,10 @@ final class BridgeService: ObservableObject {
     @Published var isRunning = false
     @Published var opening: Set<String> = []
     @Published var drafts: [String: String] = [:]
+    @Published var draftAttachments: [String: [MessageAttachment]] = [:]
+    @Published var importingAttachments: Set<String> = []
+    @Published var sending: Set<String> = []
+    var choosingFiles = false
     @Published var channelBusy = false
     @Published var channelErrors: [String: String] = [:]
     @Published var taskBusy: Set<String> = []
@@ -363,14 +367,82 @@ final class BridgeService: ObservableObject {
             } catch { lastError = error.localizedDescription }
         }
     }
+    func updateDraft(_ text: String) {
+        let key = draftKey, previous = drafts[key] ?? ""
+        drafts[key] = text
+        guard canSend, !choosingFiles, !sending.contains(key), !importingAttachments.contains(key),
+              text.count == previous.count + 1 else { return }
+        var index = text.startIndex
+        for (old, new) in zip(previous, text) {
+            if old != new { break }
+            index = text.index(after: index)
+        }
+        guard index < text.endIndex, text[index] == "@",
+              index == text.startIndex || text[text.index(before: index)].isWhitespace else { return }
+        var withoutMention = text; withoutMention.remove(at: index)
+        guard withoutMention == previous else { return }
+        drafts[key] = withoutMention
+        chooseFiles()
+    }
+    func chooseFiles() {
+        let key = draftKey
+        guard canSend, !choosingFiles, !importingAttachments.contains(key) else { return }
+        guard (draftAttachments[key]?.count ?? 0) < 10 else {
+            lastError = "每条消息最多附加 10 个文件。"; return
+        }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = true
+        panel.prompt = "添加文件"
+        panel.message = "最多 10 个文件，单个文件不超过 50 MiB。发送消息时会交给目标 Agent。"
+        choosingFiles = true
+        let parent = NSApp.keyWindow
+        NSApp.activate(ignoringOtherApps: true)
+        let completion: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+            guard let self else { return }
+            self.choosingFiles = false
+            if response == .OK { Task { await self.addAttachments(panel.urls, to: key) } }
+        }
+        if let parent { panel.beginSheetModal(for: parent, completionHandler: completion) }
+        else { panel.begin(completionHandler: completion) }
+    }
+    func addAttachments(_ urls: [URL], to key: String) async {
+        guard !urls.isEmpty, !importingAttachments.contains(key) else { return }
+        guard (draftAttachments[key]?.count ?? 0) + urls.count <= 10 else {
+            lastError = "每条消息最多附加 10 个文件。"; return
+        }
+        importingAttachments.insert(key)
+        let scoped = urls.filter { $0.startAccessingSecurityScopedResource() }
+        defer {
+            importingAttachments.remove(key)
+            scoped.forEach { $0.stopAccessingSecurityScopedResource() }
+        }
+        do {
+            let result = try await request("attachments.import", ["paths": urls.map(\.path)])
+            let files = try JSONDecoder().decode([MessageAttachment].self, from: JSONSerialization.data(withJSONObject: result))
+            draftAttachments[key, default: []].append(contentsOf: files)
+            lastError = nil
+        } catch { lastError = error.localizedDescription }
+    }
+    func removeAttachment(_ id: String) {
+        draftAttachments[draftKey]?.removeAll { $0.id == id }
+    }
     func send(_ text: String, clearDraft: Bool = false) {
         let key = draftKey
         let version = state.selection.version ?? 0
+        guard !sending.contains(key), !importingAttachments.contains(key) else { return }
+        let files = clearDraft ? draftAttachments[key] ?? [] : []
+        sending.insert(key)
         Task {
+            defer { sending.remove(key) }
             do {
                 let result = try await request("message.send", ["text": text, "eventId": UUID().uuidString,
+                    "attachmentIds": files.map(\.id),
                     "selectionVersion": version]) as? [String: Any]
-                if clearDraft { drafts[key] = "" }
+                if clearDraft && (files.isEmpty || result?["jobId"] != nil) {
+                    if drafts[key] == text { drafts[key] = "" }
+                    draftAttachments[key]?.removeAll { file in files.contains { $0.id == file.id } }
+                }
                 notice = result?["message"] as? String
                 lastError = nil
             } catch { lastError = error.localizedDescription }

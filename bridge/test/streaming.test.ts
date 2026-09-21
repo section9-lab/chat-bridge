@@ -91,3 +91,38 @@ test("transport failure and shutdown preserve partial text without replaying it 
     } finally { f.close(); }
   }
 });
+
+test("streamed and final replies quote their own request, including after restart", async () => {
+  const f = fixture();
+  try {
+    const first = f.core.receive(remote, "第一条问题");
+    const run = f.core.run(first.jobId!); await settle();
+    f.core.receive({ ...remote, eventId: "second" }, "第二条问题");
+    f.update("progress", "第一条的进度", true); f.finish(); await run;
+    const reply = f.core.state().messages.find(message => message.role === "assistant") as any;
+    assert.deepEqual(reply.replyTo, { id: first.jobId + ":user", text: "第一条问题" });
+    f.core.close();
+    const restored = new BridgeCore(f.path, { codex: f.adapter });
+    try {
+      assert.deepEqual((restored.state().messages.at(-1) as any).replyTo, reply.replyTo);
+    } finally { restored.close(); }
+  } finally { f.close(); }
+});
+
+test("native history restores reply quotes and leaves an orphan answer unquoted", async () => {
+  const f = fixture();
+  try {
+    const receipt = f.core.receive(remote, "当前问题");
+    const run = f.core.run(receipt.jobId!); await settle(); f.finish(); await run;
+    f.adapter.readHistory = async () => [
+      { id: "orphan", role: "assistant", text: "较早的回答", createdAt: "1" },
+      { id: "u1", role: "user", text: "历史问题", createdAt: "2" },
+      { id: "a1", role: "assistant", text: "历史回答", createdAt: "3" },
+      { id: "a2", role: "assistant", text: "补充回答", createdAt: "4" },
+    ];
+    await f.core.loadHistory(f.core.state().selection.sessionId!);
+    const messages = f.core.state().messages as any[];
+    assert.equal(messages[0].replyTo, undefined);
+    for (const message of messages.slice(2)) assert.deepEqual(message.replyTo, { id: messages[1].id, text: "历史问题" });
+  } finally { f.close(); }
+});

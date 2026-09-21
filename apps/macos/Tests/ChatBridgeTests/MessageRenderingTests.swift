@@ -6,6 +6,27 @@ import XCTest
 
 final class MessageRenderingTests: XCTestCase {
     @MainActor
+    func testReplyQuoteAppearsAboveTheAnswerInBothConversationSurfaces() async throws {
+        for workspace in [false, true] {
+            let service = BridgeService()
+            service.state.messages = [Message(id: "answer", sessionId: "fixture", role: "assistant", text: "这是回答。")]
+            let (window, content) = host(ChatView(service: service, settings: {}, close: {}, workspace: workspace),
+                                        width: workspace ? 720 : 380, height: 500)
+            defer { window.close() }
+            try await Task.sleep(nanoseconds: 100_000_000)
+            let card = try XCTUnwrap(descendants(content).compactMap { $0 as? NSVisualEffectView }.first { $0.layer?.cornerRadius == 22 })
+            let before = content.convert(card.bounds, from: card)
+            service.state.messages = try JSONDecoder().decode([Message].self, from: Data(#"[{"id":"answer","sessionId":"fixture","role":"assistant","text":"这是回答。","replyTo":{"id":"question","text":"这是被回复的问题"}}]"#.utf8))
+            try await Task.sleep(nanoseconds: 100_000_000)
+            content.layoutSubtreeIfNeeded()
+            let afterCard = try XCTUnwrap(descendants(content).compactMap { $0 as? NSVisualEffectView }.first { $0.layer?.cornerRadius == 22 })
+            let after = content.convert(afterCard.bounds, from: afterCard)
+            XCTAssertGreaterThan(abs(after.minY - before.minY), 15, "The quote occupies its own row above the answer, even when the original message is not loaded")
+            XCTAssertEqual(after.height, before.height, accuracy: 1, "The quote stays outside the answer bubble")
+        }
+    }
+
+    @MainActor
     func testLocalMediaLinksHaveVisiblePreviewsInBothConversationSurfaces() async throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -226,8 +247,9 @@ final class MessageRenderingTests: XCTestCase {
                         ```
 
                         查看 [使用指南](https://example.com)。
-                        """)
+                        """, replyTo: ReplyQuote(id: "user", text: "请列出 Agent 和消息通道。"))
                 ]
+                service.draftAttachments[service.draftKey] = [MessageAttachment(id: "fixture", name: "产品说明.pdf", path: "/tmp/产品说明.pdf", size: 12288)]
                 let (window, content) = host(ChatView(service: service, settings: {}, close: {}, workspace: workspace)
                     .background(workspace ? (dark ? Color(white: 0.12) : .white) : .clear)
                     .environment(\.colorScheme, dark ? .dark : .light), width: workspace ? 720 : 380, height: 820)

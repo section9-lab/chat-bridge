@@ -72,6 +72,19 @@ struct Message: Decodable, Identifiable {
     var role: String
     var text: String
     var truncated: Bool?
+    var replyTo: ReplyQuote?
+    var attachments: [MessageAttachment]?
+}
+struct ReplyQuote: Decodable {
+    var id: String
+    var text: String
+}
+struct MessageAttachment: Decodable, Identifiable, Equatable {
+    var id: String
+    var name: String
+    var path: String
+    var size: Int
+    var url: URL { URL(fileURLWithPath: path) }
 }
 struct JobSummary: Decodable, Identifiable {
     var id: String

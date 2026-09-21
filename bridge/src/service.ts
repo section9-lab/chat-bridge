@@ -67,7 +67,7 @@ export function createService(input: Readable, output: Writable, databasePath: s
         .map(({ id, jobId, status, kind, error }) => ({ id, jobId, status, kind, error })),
       sessions: sessions.map((session) => ({ ...session, title: session.title.slice(0, 128) })),
       approvals: state.approvals.filter((approval) => approval.status === "pending").slice(0, 4),
-      jobs: state.jobs.slice(0, 100).map((job) => ({ ...job, text: job.text.slice(0, 1000) })),
+      jobs: state.jobs.slice(0, 100).map(({ attachments, ...job }) => ({ ...job, text: job.text.slice(0, 1000) })),
       messages: [] as Array<(typeof state.messages)[number] & { truncated: boolean }>,
     };
     // Prioritize recent text while staying within the native IPC's 1 MiB frame limit.
@@ -156,17 +156,20 @@ export function createService(input: Readable, output: Writable, databasePath: s
     const agent = text(object(params).agent, 36);
     return core.probeAgent(agent);
   });
+  register("attachments.import", (params) => core.importAttachments(object(params).paths));
   register("message.send", async (params) => {
     const request = object(params);
     if (!Number.isSafeInteger(request.selectionVersion)) throw new BridgeError("INVALID_INPUT", "缺少当前会话版本，请刷新后重试。");
     const origin = { kind: "desktop" as const, accountId: "local", peerId: "local", eventId: text(request.eventId, 64) };
-    const input = text(request.text);
+    const attachments = core.attachments(request.attachmentIds);
+    const input = attachments.length && typeof request.text === "string" && !request.text.trim() ?
+      "附件：" + attachments.map(file => file.name).join("、") : text(request.text);
     if (request.selectionVersion !== core.state().selection.version) throw new BridgeError("STALE_TARGET", "当前目标已在其他入口改变。草稿已保留，请确认目标后再发送。");
-    const [event] = await core.prepareEvents([{ origin, text: input }]);
+    const [event] = attachments.length ? [] : await core.prepareEvents([{ origin, text: input }]);
     if (request.selectionVersion !== core.state().selection.version) {
       throw new BridgeError("STALE_TARGET", "当前目标已在其他入口改变。草稿已保留，请确认目标后再发送。");
     }
-    const receipt = core.receive(origin, input, event?.rejection);
+    const receipt = core.receive(origin, input, event?.rejection, attachments);
     if (receipt.jobId) launchJob(receipt.jobId);
     return receipt;
   });

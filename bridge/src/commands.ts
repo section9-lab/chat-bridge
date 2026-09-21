@@ -33,7 +33,7 @@ export const commandGuide = `Chat Bridge 命令指南
 J…、A… 请替换为消息中的实际编号。任务操作和审批请在发起任务的通道进行。
 
 随时发送 /help 或“菜单”重看指南。用 // 开头可发送以 / 开头的普通内容。
-当前仅接收文字。Agent 安装并登录后自动检测；微信和 iMessage 需先绑定。`;
+手机端仅接收文字，桌面支持 @ 附件。Agent 登录后自动检测；消息通道需先绑定。`;
 
 export type ParsedInput =
   | { kind: "message"; text: string }

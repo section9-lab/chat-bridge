@@ -77,7 +77,7 @@ Uses each agent's local sign-in and model configuration. Start a conversation in
 ## Before you start
 
 - Requires **macOS 14+**, with the Mac awake, online, and Chat Bridge running. iMessage also requires Messages sign-in and Full Disk Access; compatibility with older Messages databases still needs validation.
-- Input is currently **text only**. Incoming voice messages, images, and attachments are not executed as tasks. Eligible local output files can be returned to the originating chat.
+- On your Mac, type **@** or click the paperclip to attach files (up to 10 per message, 50 MiB each). Replies quote the original message. WeChat and iMessage input remains **text only**; incoming voice, images, and attachments are not executed as tasks. Eligible output files can be returned to the originating chat.
 - Messages can trigger file changes, commands, and network access. Codex and Claude Code conversations created or resumed by Bridge use full execution permissions by default. Pair only your own trusted accounts.
 - Conversation state stays on your Mac. Messages are processed by your selected messaging and agent services; smart routing also sends the message and relevant destination context to your configured routing provider.
 - Uncertain sends are not automatically retried or executed again. The live app interface and system receipts are currently primarily Chinese; the demo uses English copy.
