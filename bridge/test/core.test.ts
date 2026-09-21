@@ -303,15 +303,29 @@ test("expired tasks require explicit continue before dispatch", async () => {
   } finally { f.close(); }
 });
 
-test("continue and cancel cannot erase an uncertain send", async () => {
+test("retrying an uncertain send is refused", async () => {
   const f = fixture();
   f.codex.failSend = true;
   try {
     const job = f.core.receive(desktop("task"), "uncertain");
     await f.core.run(job.jobId!);
     assert.throws(() => f.core.receive(desktop("continue"), "/continue " + job.jobId), /SEND_UNCERTAIN/);
-    assert.throws(() => f.core.receive(desktop("cancel"), "/cancel " + job.jobId), /SEND_UNCERTAIN/);
     assert.equal(f.core.state().jobs[0]?.status, "uncertain");
+    assert.equal(f.codex.sends.length, 1);
+  } finally { f.close(); }
+});
+
+// The record can be closed so it stops occupying the intake limit, but the wording has to keep
+// saying the original may have run, and nothing may be sent a second time.
+test("closing an uncertain send keeps the uncertainty and never resends", async () => {
+  const f = fixture();
+  f.codex.failSend = true;
+  try {
+    const job = f.core.receive(desktop("task"), "uncertain");
+    await f.core.run(job.jobId!);
+    f.core.receive(desktop("cancel"), "/cancel " + job.jobId);
+    assert.equal(f.core.state().jobs[0]?.status, "cancelled");
+    assert.match(f.core.state().jobs[0]?.error ?? "", /可能已在 Agent 中执行过/);
     assert.equal(f.codex.sends.length, 1);
   } finally { f.close(); }
 });

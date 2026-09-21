@@ -40,7 +40,7 @@ test("the sweeper retires a routing question once it has expired", async (contex
   const f = fixture();
   try {
     f.core.routeDecision = async () => answer("clarify");
-    const stuck = await f.send("你现在支持哪些 Agent");
+    const stuck = await f.send("继续卡牌项目的战斗原型");
     assert.equal(f.status(stuck.jobId!), "awaiting_route");
 
     f.core.sweepExpiredRoutes();
@@ -58,18 +58,18 @@ test("an expired question is withdrawn from the router's candidate options", asy
   const f = fixture();
   try {
     f.core.routeDecision = async () => answer("clarify");
-    const stuck = await f.send("你现在支持哪些 Agent");
+    const stuck = await f.send("继续卡牌项目的战斗原型");
     assert.equal(f.status(stuck.jobId!), "awaiting_route");
 
     let offered: RouteAction[] = [];
     f.core.routeDecision = async (_context, actions) => { offered = actions; return answer("clarify"); };
 
-    await f.send("当前支持什么 Agent");
+    await f.send("顺便把关卡配置也改一下");
     assert.ok(offered.some((action) => action.id === "answer_" + stuck.jobId),
       "while the question is open the router may treat a reply as its answer");
 
     context.mock.timers.tick(TEN_MINUTES + 1_000);
-    await f.send("当前支持什么 Agent");
+    await f.send("顺便把关卡配置也改一下");
     assert.ok(!offered.some((action) => action.id.startsWith("answer_")),
       "an expired question must not be offered as something to answer");
   } finally { f.close(); context.mock.timers.reset(); }
@@ -81,13 +81,13 @@ test("answering an expired question is refused instead of merging the message", 
   const f = fixture();
   try {
     f.core.routeDecision = async () => answer("clarify");
-    const stuck = await f.send("你现在支持哪些 Agent");
+    const stuck = await f.send("继续卡牌项目的战斗原型");
     context.mock.timers.tick(TEN_MINUTES + 1_000);
 
     f.core.routeDecision = async () => answer("answer_" + stuck.jobId);
-    await f.send("当前支持什么 Agent");
+    await f.send("顺便把关卡配置也改一下");
 
-    assert.equal(f.core.state().jobs.find((job) => job.id === stuck.jobId)?.text, "你现在支持哪些 Agent",
+    assert.equal(f.core.state().jobs.find((job) => job.id === stuck.jobId)?.text, "继续卡牌项目的战斗原型",
       "the expired job keeps its own text rather than absorbing the new message");
     assert.deepEqual(f.sends, [], "nothing is dispatched to an agent");
   } finally { f.close(); context.mock.timers.reset(); }

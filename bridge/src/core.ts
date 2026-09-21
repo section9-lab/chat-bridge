@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { commandGuide, parseInput } from "./commands.js";
 import { splitReply, taskNotice } from "./messages.js";
-import { defaultRoutingSettings, isConfidentRoute, routingProviders, routeActions, type RouteAction, type RouteAnswer, type RoutingContext, type RoutingSettings } from "./routing.js";
+import { defaultRoutingSettings, isConfidentLookup, isConfidentRoute, routingProviders, routeActions, type RouteAction, type RouteAnswer, type RoutingContext, type RoutingSettings } from "./routing.js";
 import { outputProject, snapshotOutputs, type OutputAttachment } from "./outputs.js";
 import { createProjectDirectory, projectName } from "./projects.js";
 import { menuLine, renderTextMenu, textOptionIndex, type TextMenu, type TextOption, type TextView } from "./routing-options.js";
@@ -898,7 +898,8 @@ export class BridgeCore {
         ...(answer.intent ? { intent: { choice: answer.intent.choice, confidence: answer.intent.confidence,
           probability: answer.intent.probabilities[answer.intent.choice] ?? 0 } } : {}) };
       if (!chosen || chosen.kind === "clarify" || chosen.kind === "lookup" || context.settings.mode === "confirm" ||
-          !isConfidentRoute(answer, Boolean(context.current.sessionId))) {
+          !(chosen.kind === "list" ? isConfidentLookup(answer)
+            : isConfidentRoute(answer, Boolean(context.current.sessionId)))) {
         const options = ranked.length ? ranked : fallback();
         this.waitForRoute(job, chosen?.kind === "clarify" ? "这条消息希望交给哪个 Agent、项目或会话处理？" : this.routingQuestion(options), options);
         return;
@@ -1094,15 +1095,20 @@ export class BridgeCore {
       const job = this.find<Job>("job", argument);
       if (!job) throw new BridgeError("TARGET_MISSING", "此任务不存在。");
       this.authorizeAction(origin, job);
-      if (["uncertain", "dispatching", "queued", "running", "awaiting_approval", "stopping"].includes(job.status)) {
+      // Retrying an uncertain task could send it twice, but closing its record cannot: without this
+      // the task is stuck forever and still counts against the intake limit.
+      if (["dispatching", "queued", "running", "awaiting_approval", "stopping"].includes(job.status) ||
+          (job.status === "uncertain" && name === "continue")) {
         throw new BridgeError("SEND_UNCERTAIN", "该任务可能已经发送，请先在原 Agent 核对；没有重试或取消原操作。");
       }
       if (name === "cancel") {
         if (job.status === "cancelled") return job.id + " 已取消。";
-        if (!["accepted", "preparing", "waiting_agent", "awaiting_confirmation", "routing", "awaiting_route"].includes(job.status)) {
+        const unconfirmed = job.status === "uncertain";
+        if (!unconfirmed && !["accepted", "preparing", "waiting_agent", "awaiting_confirmation", "routing", "awaiting_route"].includes(job.status)) {
           throw new BridgeError("INVALID_STATE", "此任务已结束。");
         }
-        job.status = "cancelled"; job.error = "已取消，正文不会发送给 Agent。";
+        job.status = "cancelled";
+        job.error = unconfirmed ? "已关闭；原操作可能已在 Agent 中执行过，正文不会重新发送。" : "已取消，正文不会发送给 Agent。";
         this.record("job", job.id, job);
         return job.id + " 已取消。";
       }

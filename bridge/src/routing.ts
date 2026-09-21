@@ -25,6 +25,13 @@ export function isConfidentRoute(answer: RouteAnswer, continuingCurrentSession =
       (ranked[0] ?? 0) - (ranked[1] ?? 0) >= 0.5;
   });
 }
+// A lookup only prints a list: nothing is sent and no target moves, so a wrong guess costs the
+// user one unwanted list. It clears a lower bar than an action that dispatches or switches work.
+export function isConfidentLookup(answer: RouteAnswer): boolean {
+  const scores = Object.values(answer.probabilities).sort((a, b) => b - a);
+  const chosen = answer.probabilities[answer.choice] ?? 0;
+  return chosen > 0 && chosen === scores[0] && chosen - (scores[1] ?? 0) >= 0.15;
+}
 export type RoutingContext = { text: string; current: Target; projects: Project[]; sessions: Session[];
   probes: Record<string, AgentProbe>; active: Record<string, Target>; settings: RoutingSettings; defaultAgent: string;
   projectCreationAgents?: string[];

@@ -40,9 +40,24 @@ export type ParsedInput =
   | { kind: "command"; name: string; argument: string }
   | { kind: "invalid"; message: string };
 
+// Questions about the bridge itself are answered here rather than sent to the decision model:
+// a zero-risk lookup cannot win a several-hundred-option vote, so it used to come back as a menu.
+// Every pattern matches the whole message — any extra wording means it is a task, not a lookup.
+const lookups: [RegExp, string][] = [
+  [/^(?:你|您)?(?:现在|当前|目前)?(?:都)?(?:支持|有|接入了?)(?:哪些|什么|啥)(?:ai)?(?:agent|智能体|助手)$/i, "agent"],
+  [/^(?:agent|智能体|助手)(?:有哪些|列表|清单)$/i, "agent"],
+  [/^(?:现在|当前|目前)?(?:有)?(?:哪些|什么)项目$/, "projects"],
+  [/^项目(?:有哪些|列表|清单)$/, "projects"],
+  [/^(?:现在|当前|目前)?(?:有)?(?:哪些|什么)(?:会话|对话)$/, "sessions"],
+  [/^(?:会话|对话)(?:有哪些|列表|清单)$/, "sessions"],
+  [/^(?:现在|当前|目前)?(?:是)?(?:什么|哪个)?(?:状态|目标)$/, "status"],
+  [/^(?:菜单|帮助|怎么用|使用说明|help)$/i, "help"],
+];
+
 export function parseInput(text: string): ParsedInput {
   if (text.startsWith("//")) return { kind: "message", text: text.slice(1) };
-  if (text.trim() === "菜单") return { kind: "command", name: "help", argument: "" };
+  const asked = text.trim().replace(/[\s?？。.!！]+$/u, "").replaceAll(/\s+/gu, "");
+  for (const [pattern, name] of lookups) if (pattern.test(asked)) return { kind: "command", name, argument: "" };
   const match = /^\/([a-z]+)(?:[ \t]+([^\r\n]*))?$/.exec(text.trim());
   if (!match) {
     if (/^\/(?:agent|mode|project|use|new|stop|approve|deny|retry|cancel|continue)\b/.test(text.trim())) {
