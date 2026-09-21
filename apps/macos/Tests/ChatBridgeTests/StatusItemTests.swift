@@ -56,6 +56,13 @@ final class StatusItemTests: XCTestCase {
         let host = try XCTUnwrap(application.windows
             .filter { !existingWindows.contains($0.windowNumber) }
             .compactMap { statusButton(in: $0.contentView) }.first)
+        let buttonWindow = try XCTUnwrap(host.window)
+        // The status item receives its screen coordinates asynchronously.
+        for _ in 0..<50 {
+            if buttonWindow.isVisible && buttonWindow.frame.height > 0 { break }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        XCTAssertGreaterThan(buttonWindow.frame.height, 0)
         host.performClick(nil)
         let panel = try XCTUnwrap(application.windows.compactMap { $0 as? ChatPanel }
             .first { !existingWindows.contains($0.windowNumber) && $0.isVisible })
@@ -65,7 +72,14 @@ final class StatusItemTests: XCTestCase {
         delegate.service.drafts[delegate.service.draftKey] = "保留这份草稿"
         let selectedSession = delegate.service.state.selection.sessionId
         let drafts = delegate.service.drafts
-        content.rootView.openDashboard()
+        let anchor = buttonWindow.convertToScreen(host.convert(host.bounds, to: nil))
+        let location = panel.convertPoint(fromScreen: NSPoint(x: anchor.midX, y: panel.frame.maxY - 23))
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            let event = try XCTUnwrap(NSEvent.mouseEvent(with: type, location: location, modifierFlags: [],
+                timestamp: 0, windowNumber: panel.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+            panel.sendEvent(event)
+        }
+        try await Task.sleep(nanoseconds: 100_000_000)
         XCTAssertFalse(panel.isVisible)
         XCTAssertTrue(application.windows.contains { $0.title == "Chat Bridge" && $0.isVisible })
         XCTAssertEqual(application.activationPolicy(), .regular)

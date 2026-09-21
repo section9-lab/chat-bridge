@@ -8,7 +8,7 @@ struct FrostedBubble: View {
     var body: some View {
         FrostedMaterial(cornerRadius: cornerRadius)
             .overlay(RoundedRectangle(cornerRadius: cornerRadius)
-                .fill(user ? Color(white: colorScheme == .dark ? 0.25 : 0.88).opacity(0.94)
+                .fill(user ? Color(white: colorScheme == .dark ? 0.20 : 0.80).opacity(0.94)
                            : .white.opacity(colorScheme == .dark ? 0.08 : 0.88)))
             .overlay(RoundedRectangle(cornerRadius: cornerRadius)
                 .strokeBorder(.white.opacity(colorScheme == .dark ? 0.2 : 0.55), lineWidth: 0.75))
@@ -87,6 +87,7 @@ struct ChatView: View {
     var close: () -> Void
     var workspace = false
     var openDashboard: () -> Void = {}
+    var dashboardTrailingInset: CGFloat = 1
     @FocusState private var focused: Bool
     @State private var choosingSession = false
     @State private var dashboardHovered = false
@@ -104,27 +105,29 @@ struct ChatView: View {
                 Divider().opacity(0.45)
             }
             messageList
-                .overlay(alignment: .topTrailing) {
-                    if !workspace {
-                        Button(action: openDashboard) {
-                            Image(systemName: "arrow.up.right")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundStyle(dashboardHovered ? Color.accentColor : Color.secondary)
-                                .frame(width: 30, height: 30)
-                                .background(.background.opacity(0.85), in: Circle())
-                                .overlay(Circle().strokeBorder(dashboardHovered ? Color.accentColor : Color.secondary.opacity(0.35), lineWidth: 1))
-                                .contentShape(Circle())
-                        }
-                        .buttonStyle(.plain).help("打开应用看板").accessibilityLabel("打开应用看板")
-                        .onHover { dashboardHovered = $0 }
-                        .padding(.top, 8).padding(.trailing, 12)
-                    }
-                }
+                // Keep the shadow gutter outside the shared bubble and composer edges.
+                .padding(.horizontal, workspace ? 0 : -12)
             if workspace { Divider().opacity(0.45).padding(.horizontal, 24) }
             composer
         }
         .padding(.horizontal, workspace ? 0 : 24)
         .padding(.bottom, workspace ? 0 : 30)
+        .overlay(alignment: .topTrailing) {
+            if !workspace {
+                Button(action: openDashboard) {
+                    Image(systemName: "arrow.up.right")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(dashboardHovered ? Color.accentColor : Color.secondary)
+                        .frame(width: 30, height: 30)
+                        .background(.background.opacity(0.85), in: Circle())
+                        .overlay(Circle().strokeBorder(dashboardHovered ? Color.accentColor : Color.secondary.opacity(0.35), lineWidth: 1))
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain).help("打开应用看板").accessibilityLabel("打开应用看板")
+                .onHover { dashboardHovered = $0 }
+                .padding(.top, 8).padding(.trailing, dashboardTrailingInset)
+            }
+        }
         .background {
             if !workspace && !reduceTransparency {
                 FrostedMaterial(cornerRadius: 0, maskImage: MaterialMasks.feathered).opacity(0.24)

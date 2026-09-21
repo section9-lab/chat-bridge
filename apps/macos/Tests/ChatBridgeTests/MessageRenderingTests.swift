@@ -136,19 +136,25 @@ final class MessageRenderingTests: XCTestCase {
     }
 
     @MainActor
-    func testWorkspaceConversationUsesOppositeSides() throws {
-        for user in [false, true] {
+    func testConversationBubblesAlignWithTheComposer() throws {
+        for (workspace, user) in [(false, false), (false, true), (true, false), (true, true)] {
             let service = BridgeService()
             service.state.messages = [Message(id: "side", sessionId: "fixture", role: user ? "user" : "assistant", text: "你好")]
-            let (window, content) = host(ChatView(service: service, settings: {}, close: {}, workspace: true), width: 720, height: 500)
+            let (window, content) = host(ChatView(service: service, settings: {}, close: {}, workspace: workspace),
+                                         width: workspace ? 720 : 380, height: 500)
             defer { window.close() }
-            let card = try XCTUnwrap(descendants(content).compactMap { $0 as? NSVisualEffectView }.first,
-                                     "Workspace messages should use the same bubbles as the floating conversation")
+            let surfaces = descendants(content).compactMap { $0 as? NSVisualEffectView }
+            let card = try XCTUnwrap(surfaces.first { $0.layer?.cornerRadius == 22 })
             let frame = content.convert(card.bounds, from: card)
+            var composer = NSRect(x: 24, y: 0, width: 672, height: 0)
+            if !workspace {
+                let surface = try XCTUnwrap(surfaces.first { $0.layer?.cornerRadius == 28 })
+                composer = content.convert(surface.bounds, from: surface)
+            }
             if user {
-                XCTAssertEqual(frame.maxX, 696, accuracy: 1)
+                XCTAssertEqual(frame.maxX, composer.maxX, accuracy: 1)
             } else {
-                XCTAssertEqual(frame.minX, 24, accuracy: 1)
+                XCTAssertEqual(frame.minX, composer.minX, accuracy: 1)
             }
         }
     }

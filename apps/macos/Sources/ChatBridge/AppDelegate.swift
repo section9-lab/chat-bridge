@@ -105,6 +105,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let x = max(visible.minX + 10, min(anchor.maxX - width, visible.maxX - width - 10))
         let y = max(visible.minY + 10, anchor.minY - height - 8)
         panel.setFrame(NSRect(x: x, y: y, width: width, height: height), display: true)
+        if let content = panel.contentView as? NSHostingView<ChatView> {
+            content.rootView.dashboardTrailingInset = max(0, min(width - 30, panel.frame.maxX - anchor.midX - 15))
+        }
     }
     private func hidePanel() { panel?.orderOut(nil) }
     func showMainWindow() {
