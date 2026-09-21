@@ -44,20 +44,43 @@ export type ParsedInput =
 // a zero-risk lookup cannot win a several-hundred-option vote, so it used to come back as a menu.
 // Every pattern matches the whole message — any extra wording means it is a task, not a lookup.
 const lookups: [RegExp, string][] = [
+  // Which agents exist at all.
   [/^(?:你|您)?(?:现在|当前|目前)?(?:都)?(?:支持|有|接入了?)(?:哪些|什么|啥)(?:ai)?(?:agent|智能体|助手)$/i, "agent"],
   [/^(?:agent|智能体|助手)(?:有哪些|列表|清单)$/i, "agent"],
   [/^(?:现在|当前|目前)?(?:有)?(?:哪些|什么)项目$/, "projects"],
   [/^项目(?:有哪些|列表|清单)$/, "projects"],
   [/^(?:现在|当前|目前)?(?:有)?(?:哪些|什么)(?:会话|对话)$/, "sessions"],
   [/^(?:会话|对话)(?:有哪些|列表|清单)$/, "sessions"],
+  // Which one is selected right now — a different question, answered by the status summary.
+  [/^(?:现在|当前|目前)?(?:用的?是?|在用|使用|是|处于|位于|在)?(?:哪个|哪一个|什么)(?:agent|智能体|助手)(?:下面|下|里|呢)?$/i, "status"],
+  [/^(?:现在|当前|目前)?(?:的)?(?:agent|智能体|助手)(?:是什么|叫什么|是哪个)$/i, "status"],
+  [/^(?:现在|当前|目前)?(?:用的?是?|在用|使用|是|处于|位于|在)?(?:哪个|哪一个|什么)项目(?:下面|下|里|呢)?$/, "status"],
+  [/^(?:现在|当前|目前)?(?:的)?项目(?:名字|名称)?(?:是什么|叫什么|是哪个)$/, "status"],
+  [/^(?:现在|当前|目前)?(?:用的?是?|在用|使用|是|处于|位于|在)?(?:哪个|哪一个|什么)(?:会话|对话)(?:下面|下|里|呢)?$/, "status"],
+  [/^(?:现在|当前|目前)?(?:的)?(?:会话|对话)(?:名字|名称)?(?:是什么|叫什么|是哪个)$/, "status"],
   [/^(?:现在|当前|目前)?(?:是)?(?:什么|哪个)?(?:状态|目标)$/, "status"],
   [/^(?:菜单|帮助|怎么用|使用说明|help)$/i, "help"],
 ];
 
+// People ask two of these at once ("现在处于哪个项目？哪个 Agent 下面？"), so each clause is
+// matched on its own. Every clause must be the same kind of question: one clause of real work
+// anywhere in the message sends the whole thing to the router, as before.
+function localLookup(text: string): string | undefined {
+  const clauses = text.split(/[?？。.!！,，、;；\n]+/u).map(part => part.replaceAll(/\s+/gu, "")).filter(Boolean);
+  if (!clauses.length) return undefined;
+  let found: string | undefined;
+  for (const clause of clauses) {
+    const name = lookups.find(([pattern]) => pattern.test(clause))?.[1];
+    if (!name || (found && name !== found)) return undefined;
+    found = name;
+  }
+  return found;
+}
+
 export function parseInput(text: string): ParsedInput {
   if (text.startsWith("//")) return { kind: "message", text: text.slice(1) };
-  const asked = text.trim().replace(/[\s?？。.!！]+$/u, "").replaceAll(/\s+/gu, "");
-  for (const [pattern, name] of lookups) if (pattern.test(asked)) return { kind: "command", name, argument: "" };
+  const lookup = localLookup(text);
+  if (lookup) return { kind: "command", name: lookup, argument: "" };
   const match = /^\/([a-z]+)(?:[ \t]+([^\r\n]*))?$/.exec(text.trim());
   if (!match) {
     if (/^\/(?:agent|mode|project|use|new|stop|approve|deny|retry|cancel|continue)\b/.test(text.trim())) {

@@ -29,6 +29,31 @@ test("anything carrying a task keeps going to the router", () => {
   }
 });
 
+// The three phrasings that still came back as a menu after the first fix.
+test("asking which agent, project or session is selected reads the status summary", () => {
+  for (const text of ["现在用的是什么Agent？", "现在是哪个 Agent", "当前的会话名字叫什么？",
+                      "现在是哪个会话", "现在处于哪个项目？", "当前项目叫什么", "现在什么状态"]) {
+    assert.equal(parsed(text), "status", text);
+  }
+});
+
+// Two questions in one message, both about the bridge.
+test("a compound question is answered locally when every clause asks the same thing", () => {
+  assert.equal(parsed("现在处于哪个项目？哪个Agent下面？"), "status");
+  assert.equal(parsed("当前是哪个 Agent，哪个会话？"), "status");
+});
+
+test("a compound message mixing a question with work still goes to the router", () => {
+  assert.equal(parsed("现在处于哪个项目？顺便把文档更新一下"), "message");
+  assert.equal(parsed("当前是哪个 Agent，帮我把它换成 Claude"), "message");
+});
+
+// Listing the agents and naming the selected one are different questions.
+test("listing agents is not confused with naming the current one", () => {
+  assert.equal(parsed("当前支持什么Agent？"), "agent");
+  assert.equal(parsed("现在用的是什么Agent？"), "status");
+});
+
 test("the // escape still sends the literal text", () => {
   const result = parseInput("//有哪些项目");
   assert.deepEqual(result, { kind: "message", text: "/有哪些项目" });
