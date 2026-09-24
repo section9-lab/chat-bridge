@@ -33,6 +33,20 @@ test("the current agent does not get a second copy of the same lookup", () => {
   assert.ok(ids.includes("list_projects_claude"), "other agents still get their own lookup");
 });
 
+test("disabled agents are never candidates, not even to continue the current conversation", () => {
+  const sessions = ["codex", "claude"].map((agent, index) => ({ id: "session-" + agent, nativeId: "native-" + agent, shortId: "S" + index,
+    agent, mode: "code", projectId: null, title: agent + " 会话" }));
+  const projects = [{ id: "shop", name: "商城", roots: [], agent: "cursor", shortId: "P1" }];
+  const targets = (actions: ReturnType<typeof routeActions>) =>
+    [...new Set(actions.flatMap((action) => [action.target?.agent, action.scope?.agent]).filter(Boolean))].sort();
+  const enabled = routeActions({ ...context("继续", sessions), projects, enabledAgents: ["codex", "grok"] });
+  assert.deepEqual(targets(enabled), ["codex", "grok"]);
+  assert.ok(enabled.some((action) => action.id === "continue"));
+  const disabled = routeActions({ ...context("继续", sessions), projects, enabledAgents: ["claude"] });
+  assert.deepEqual(targets(disabled), ["claude"]);
+  assert.equal(disabled.some((action) => action.id === "continue" || action.id === "list_projects"), false);
+});
+
 test("every candidate id is unique", () => {
   const sessions = Array.from({ length: 30 }, (_, index) => ({
     id: "session-" + index, nativeId: "native-" + index, shortId: "S" + index,

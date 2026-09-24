@@ -152,7 +152,7 @@ export function createService(input: Readable, output: Writable, databasePath: s
   });
   register("preferences.update", (params) => {
     const patch = object(params);
-    if (Object.keys(patch).some((key) => !["defaultAgent", "pinned", "keepAlive", "names"].includes(key))) {
+    if (Object.keys(patch).some((key) => !["defaultAgent", "pinned", "keepAlive", "names", "enabledAgents"].includes(key))) {
       throw new BridgeError("INVALID_INPUT", "存在不支持的配置项。");
     }
     core.setPreferences(patch as Partial<Preferences>);

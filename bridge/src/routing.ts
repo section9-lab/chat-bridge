@@ -34,7 +34,7 @@ export function isConfidentLookup(answer: RouteAnswer): boolean {
 }
 export type RoutingContext = { text: string; current: Target; projects: Project[]; sessions: Session[];
   probes: Record<string, AgentProbe>; active: Record<string, Target>; settings: RoutingSettings; defaultAgent: string;
-  activeProjects?: Record<string, Target>;
+  enabledAgents?: string[]; activeProjects?: Record<string, Target>;
   lookupScope?: RouteScope;
   history: { role: string; text: string }[];
   tasks?: { id: string; text: string; status: string; target: Target; question?: string; canAnswer: boolean; canStop: boolean }[] };
@@ -44,11 +44,13 @@ const line = (text: string) => {
 };
 
 export function routeActions(context: RoutingContext): RouteAction[] {
-  const available = (agent: string) => context.probes[agent]?.ready && !context.probes[agent]?.executionError;
+  // Disabled agents are never candidates, not even to continue the current conversation.
+  const enabled = (agent: string) => !context.enabledAgents || context.enabledAgents.includes(agent);
+  const available = (agent: string) => enabled(agent) && context.probes[agent]?.ready && !context.probes[agent]?.executionError;
   const describe = (target: Target) => (agentNames[target.agent] ?? target.agent) + " · " +
     (target.projectId ? line(context.projects.find((project) => project.agent === target.agent && project.id === target.projectId)?.name ?? "已绑定项目") : "无项目") + " · " +
     (target.sessionId ? line(context.sessions.find((session) => session.id === target.sessionId)?.title ?? "当前会话") : "新会话");
-  const actions: RouteAction[] = [
+  const actions: RouteAction[] = ([
     { id: "continue", kind: "send", target: context.current, label: "继续当前任务：" + describe(context.current) },
     { id: "clarify", kind: "clarify", label: "需要澄清：目标缺失、多个目标同样合适、明确指定的目标不可用，或需要跨 Agent 上下文交接" },
     { id: "list_agents", kind: "list", command: "agent", label: "只查看 Agent 列表" },
@@ -57,7 +59,7 @@ export function routeActions(context: RoutingContext): RouteAction[] {
     { id: "list_current_sessions", kind: "list", command: "sessions", scope: { agent: context.current.agent, projectId: context.current.projectId }, label: "只查看当前项目的会话；无项目时只查看直接会话" },
     { id: "list_status", kind: "list", command: "status", label: "只查看 Chat Bridge 当前选中的目标和桥接任务状态，不改变目标" },
     { id: "help", kind: "list", command: "help", label: "查看命令指南和使用说明" },
-  ];
+  ] satisfies RouteAction[]).filter((action) => enabled(context.current.agent) || !action.target && !action.scope);
   for (const task of context.tasks ?? []) {
     const label = describe(task.target) + "（" + line(task.text) + "）";
     actions.push({ id: "correct_" + task.id, kind: "correct", jobId: task.id, label: "更正这条消息的目标：" + label });
@@ -69,7 +71,7 @@ export function routeActions(context: RoutingContext): RouteAction[] {
     if (["accepted", "preparing", "waiting_agent", "awaiting_confirmation", "awaiting_route"].includes(task.status)) {
       actions.push({ id: "cancel_" + task.id, kind: "control", command: "cancel", jobId: task.id, target: task.target, label: "取消未发送的任务：" + label });
     }
-    if (["waiting_agent", "awaiting_confirmation"].includes(task.status)) {
+    if (["waiting_agent", "awaiting_confirmation"].includes(task.status) && enabled(task.target.agent)) {
       actions.push({ id: "retry_" + task.id, kind: "control", command: "continue", jobId: task.id, target: task.target, label: "恢复未发送的任务：" + label });
     }
   }

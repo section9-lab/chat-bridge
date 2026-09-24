@@ -28,7 +28,7 @@ export type Origin = {
   kind: "desktop" | "imessage" | "weixin";
   accountId: string; peerId: string; eventId: string; fromSelf?: boolean; bindingEpoch?: number;
 };
-export type Preferences = { defaultAgent: string; pinned: string[]; keepAlive: boolean; names: Record<string, string> };
+export type Preferences = { defaultAgent: string; pinned: string[]; keepAlive: boolean; names: Record<string, string>; enabledAgents: string[] };
 export type Job = {
   id: string; origin: Origin; target: Target; text: string; status: string;
   createdAt: string; queuedAt?: string; error?: string; sessionId?: string; turnId?: string; externalControl?: boolean;
@@ -117,7 +117,7 @@ export class BridgeCore {
       "PRAGMA user_version = 1;",
     ].join("\n"));
     if (!this.get<Preferences>("preferences")) {
-      this.put("preferences", { defaultAgent: "codex", pinned: ["codex", "claude", "cursor"], keepAlive: false, names: {} });
+      this.put("preferences", { defaultAgent: "codex", pinned: ["codex", "claude", "cursor"], keepAlive: false, names: {}, enabledAgents: [...agentIDs] });
       this.put("selection", this.fresh("codex"));
       this.put("intent", 0);
     }
@@ -198,6 +198,21 @@ export class BridgeCore {
   }
   private activeKey(target: Target): string { return "active:" + target.agent + ":" + target.mode; }
   private selection(): Selection { return this.get<Selection>("selection")!; }
+  // Stores saved before the agent picker existed have no list: every agent stays enabled.
+  private preferences(): Preferences {
+    const stored = this.get<Preferences>("preferences")!;
+    return { ...stored, enabledAgents: Array.isArray(stored.enabledAgents) && stored.enabledAgents.length ? stored.enabledAgents : [...agentIDs] };
+  }
+  private agentEnabled(agent: string): boolean { return this.preferences().enabledAgents.includes(agent); }
+  // Phone channels only reach enabled agents; the Mac app may still use any agent it explicitly selects.
+  private blockedAgent(origin: Pick<Origin, "kind">, agent: string): string | undefined {
+    return origin.kind === "desktop" || this.agentEnabled(agent) ? undefined : this.disabledNotice(agent);
+  }
+  private disabledNotice(agent: string): string { return this.displayAgent(agent) + " 未在 Chat Bridge 中启用，可在设置里开启。"; }
+  private guide(): string {
+    const enabled = this.preferences().enabledAgents;
+    return commandGuide.split("\n").filter((line) => !/^\/agent \S+ — /.test(line) || enabled.includes(line.split(" ")[1]!)).join("\n");
+  }
   private executable(agent: string): void {
     if (!agentIDs.includes(agent as typeof agentIDs[number])) throw new BridgeError("COMING_SOON", "此 Agent 尚未接入。");
     if (!this.adapters[agent]) throw new BridgeError("AGENT_UNAVAILABLE", "未找到已验证的桌面接入。");
@@ -224,7 +239,7 @@ export class BridgeCore {
   state() {
     const selection = this.selection();
     return {
-      preferences: this.get<Preferences>("preferences")!, probes: { ...this.probes },
+      preferences: this.preferences(), probes: { ...this.probes },
       selection, projects: this.list<Project>("project"), sessions: this.list<Session>("session"), jobs: this.list<Job>("job").slice(-100).reverse(),
       messages: this.list<Message>("message").filter((m) => m.sessionId === selection.sessionId),
       approvals: this.list<Approval>("approval").slice(-100).reverse(),
@@ -251,6 +266,12 @@ export class BridgeCore {
       throw new BridgeError("INVALID_INPUT", "请选择有效的路由方式和 Agent。");
     }
     this.put("routing", settings); this.changed();
+  }
+  // Role preferences never route to a disabled agent; they fall back to the default agent instead.
+  private routingPreferences(): RoutingSettings {
+    const settings = this.routingSettings();
+    const pick = (agent: string) => agent === "default" || this.agentEnabled(agent) ? agent : "default";
+    return { ...settings, planning: pick(settings.planning), implementation: pick(settings.implementation), research: pick(settings.research) };
   }
   // Whether ordinary messages enter the Jev routing pipeline at all ("off" sends everything
   // straight to the current target with no menu, no Jev call — an explicit user opt-out).
@@ -379,12 +400,13 @@ export class BridgeCore {
       if (!event.rejection && parsed.kind === "command") {
         if (parsed.name === "agent" && !parsed.argument) await this.probeAgents();
         if (parsed.name === "status" && this.adapters[agent]) await this.probeAgent(agent);
-        if (parsed.name === "agent" && this.adapters[parsed.argument]) {
+        if (parsed.name === "agent" && this.adapters[parsed.argument] && !this.blockedAgent(event.origin, parsed.argument)) {
           agent = parsed.argument;
           await this.probeAgent(agent);
         }
       }
-      if (!event.rejection && parsed.kind === "command" && (["projects", "sessions"].includes(parsed.name) || parsed.name === "project" && !parsed.argument)) {
+      if (!event.rejection && parsed.kind === "command" && (["projects", "sessions"].includes(parsed.name) || parsed.name === "project" && !parsed.argument) &&
+          !this.blockedAgent(event.origin, agent)) {
         try { await this.refreshCatalog(agent); }
         catch { prepared.push({ ...event, rejection: "无法读取原应用的项目与会话，请检查该 Agent 的安装和登录后重试。当前目标保持不变。" }); continue; }
       }
@@ -488,7 +510,7 @@ export class BridgeCore {
   }
 
   setPreferences(patch: Partial<Preferences>): void {
-    const preferences = { ...this.get<Preferences>("preferences")!, ...patch };
+    const preferences = { ...this.preferences(), ...patch };
     this.executable(preferences.defaultAgent);
     if (!Array.isArray(preferences.pinned) || preferences.pinned.length > 3 ||
         new Set(preferences.pinned).size !== preferences.pinned.length ||
@@ -499,6 +521,16 @@ export class BridgeCore {
     if (!preferences.names || Array.isArray(preferences.names) || typeof preferences.names !== "object" ||
         Object.entries(preferences.names).some(([key, value]) => !agentIDs.includes(key as typeof agentIDs[number]) || typeof value !== "string" || !value.trim() || value.length > 36)) {
       throw new BridgeError("INVALID_INPUT", "Agent 名称必须为 1–36 个字符。");
+    }
+    if (!Array.isArray(preferences.enabledAgents) || !preferences.enabledAgents.length ||
+        new Set(preferences.enabledAgents).size !== preferences.enabledAgents.length ||
+        preferences.enabledAgents.some((id) => !agentIDs.includes(id as typeof agentIDs[number]))) {
+      throw new BridgeError("INVALID_INPUT", "请至少启用一个有效的 Agent，且不能重复。");
+    }
+    preferences.enabledAgents = agentIDs.filter((id) => preferences.enabledAgents.includes(id));
+    if (!preferences.enabledAgents.includes(preferences.defaultAgent)) {
+      preferences.defaultAgent = preferences.enabledAgents[0]!;
+      this.executable(preferences.defaultAgent);
     }
     this.db.transaction(() => {
       this.put("preferences", preferences);
@@ -519,7 +551,7 @@ export class BridgeCore {
       this.put("binding-epoch:" + kind, epoch);
       const id = "onboarding:" + kind + ":" + epoch;
       this.enqueueReply(id, { kind, accountId: account, peerId: peer, eventId: id, bindingEpoch: epoch },
-        "配置完成，已绑定此账号。\n\n" + commandGuide, "onboarding");
+        "配置完成，已绑定此账号。\n\n" + this.guide(), "onboarding");
     })();
   }
 
@@ -556,10 +588,14 @@ export class BridgeCore {
         else {
           this.clearMenu(origin);
           const outstanding = this.list<Job>("job").filter((job) => !["completed", "cancelled", "interrupted", "failed"].includes(job.status));
+          // The Mac app's explicit selection of a disabled agent is honored as is, without routing.
+          const routing = this.smartRoutingEnabled() && !text.startsWith("//") && (origin.kind !== "desktop" || this.agentEnabled(this.selection().agent));
+          const blocked = routing ? undefined : this.blockedAgent(origin, this.selection().agent);
           if (outstanding.length >= 100) {
             result = { message: "未接受：待执行任务已达到 100 个，请先处理已有任务。" };
+          } else if (blocked) {
+            result = { message: blocked };
           } else {
-            const routing = this.smartRoutingEnabled() && !text.startsWith("//");
             const target = routing ? { ...this.selection() } : this.reserve(this.selection());
             if (!routing) this.put("selection", { ...target, engaged: true });
             const id = "J" + randomUUID().replaceAll("-", "").slice(0, 12);
@@ -592,15 +628,16 @@ export class BridgeCore {
     return resolved;
   }
   private routingContext(text: string, target: Target = this.selection(), origin?: Origin, jobId?: string): RoutingContext {
-    const current = this.resolvedTarget(target);
+    const current = this.resolvedTarget(target), enabled = this.preferences().enabledAgents;
     const tasks = this.list<Job>("job").filter(job => job.id !== jobId && origin &&
       (origin.kind === "desktop" || this.menuKey(job.origin) === this.menuKey(origin)));
     const activeTasks = tasks.filter(job => !["completed", "cancelled", "interrupted", "failed"].includes(job.status)).slice(-12);
     const recentTasks = tasks.filter(job => ["completed", "interrupted", "failed"].includes(job.status) && job.sessionId).slice(-3);
-    return { text, current, settings: this.routingSettings(), defaultAgent: this.get<Preferences>("preferences")!.defaultAgent,
-      projects: this.list<Project>("project").filter((project) => this.catalogMembers.get(project.agent)?.projects.has(project.id)),
-      sessions: this.list<Session>("session").filter((session) => session.id === current.sessionId || this.catalogMembers.get(session.agent)?.sessions.has(session.nativeId)),
-      probes: { ...this.probes }, active: Object.fromEntries(agentIDs.map((agent) => [agent,
+    return { text, current, settings: this.routingPreferences(), defaultAgent: this.preferences().defaultAgent, enabledAgents: enabled,
+      projects: this.list<Project>("project").filter((project) => enabled.includes(project.agent) && this.catalogMembers.get(project.agent)?.projects.has(project.id)),
+      sessions: this.list<Session>("session").filter((session) => session.id === current.sessionId ||
+        enabled.includes(session.agent) && this.catalogMembers.get(session.agent)?.sessions.has(session.nativeId)),
+      probes: Object.fromEntries(Object.entries(this.probes).filter(([agent]) => enabled.includes(agent))), active: Object.fromEntries(enabled.map((agent) => [agent,
         this.get<Target>("active:" + agent + ":code") ?? this.fresh(agent)])),
       activeProjects: Object.fromEntries(this.list<Project>("project").flatMap(project => {
         const key = project.agent + ":" + project.id, target = this.get<Target>("active-project:" + key);
@@ -655,6 +692,8 @@ export class BridgeCore {
     for (const menu of this.textMenus(origin)) {
       if (menu.jobId === job?.id) this.record("text-menu", menu.id, { ...menu, active: false });
     }
+    const blocked = ["projects", "sessions"].includes(view.stage) && view.scope && !this.agentEnabled(view.scope.agent);
+    if (blocked) return this.openTextMenu(job, origin, { stage: "agents", mode: view.mode }, [prefix, this.disabledNotice(view.scope!.agent)].filter(Boolean).join("\n\n"), focus);
     const entries: TextOption[] = [], mode = view.mode ?? "send", scope = view.scope ?? { agent: this.selection().agent };
     const actionOption = (action: RouteAction, label = this.routeLabel(action), aliases?: string[]): TextOption => ({ kind: "action", action, label,
       aliases: aliases ?? (action.kind === "send" ? action.id === "continue" ? ["继续", "继续原会话"] :
@@ -677,7 +716,9 @@ export class BridgeCore {
       if (offset) entries.push(next("上一页", { ...view, offset: Math.max(0, offset - 6) }));
     } else if (view.stage === "route") {
       header = (job?.error ?? "请选择这条消息的处理方式。") + "\n原消息已保留，尚未发送：\n“" + menuLine(job?.text ?? "", 100) + "”";
-      for (const action of job?.routing?.options ?? []) entries.push(actionOption(action));
+      for (const action of job?.routing?.options ?? []) {
+        if (action.kind === "control" || !action.target || this.agentEnabled(action.target.agent)) entries.push(actionOption(action));
+      }
       entries.push(next("手动选择目标", { stage: "agents", mode: job?.routingDecision?.intent?.choice === "navigate" ? "select" : "send" }, ["选择其他目标", "都不是", "手动选择其他目标"]));
       if (!job?.routingDecision?.intent) entries.push(next("只切换目标，不发送原消息", { stage: "agents", mode: "select" }));
       entries.push({ kind: "retry", label: "重新尝试智能判断", aliases: ["重新判断", "重试智能判断"] });
@@ -692,7 +733,7 @@ export class BridgeCore {
       entries.push({ kind: "status", label: "查看任务状态" });
     } else if (view.stage === "agents") {
       header = "选择 Agent：";
-      for (const agent of agentIDs) if (this.adapters[agent]) {
+      for (const agent of agentIDs) if (this.adapters[agent] && this.agentEnabled(agent)) {
         entries.push(next(this.displayAgent(agent) + "（" + this.availabilityLabel(agent) + "）", { stage: "projects", mode, scope: { agent } },
           [...new Set([this.displayAgent(agent), agentNames[agent]!, agent])]));
       }
@@ -786,7 +827,9 @@ export class BridgeCore {
       return { message: this.openTextMenu(job, origin, menu.view, "选项已过期或当前目标已改变。原消息保留，请按新列表重新选择。", true) };
     }
     const entry = index === undefined ? undefined : menu.entries[index];
-    if (!entry) return { message: "没有匹配到这个选项，尚未执行。\n\n" + renderTextMenu(menu) };
+    const named = !entry && menu.view.stage === "agents" ? agentIDs.find((agent) => !this.agentEnabled(agent) &&
+      [this.displayAgent(agent), agentNames[agent], agent].includes(text)) : undefined;
+    if (!entry) return { message: (named ? this.disabledNotice(named) : "没有匹配到这个选项，尚未执行。") + "\n\n" + renderTextMenu(menu) };
     if (entry.kind === "view") return { message: this.openTextMenu(job, origin, entry.view, "", true) };
     if (entry.kind === "task") {
       const task = this.find<Job>("job", entry.jobId);
@@ -817,6 +860,9 @@ export class BridgeCore {
     if (action.target) {
       const target = action.target, member = this.catalogMembers.get(target.agent);
       const session = target.sessionId ? this.find<Session>("session", target.sessionId) : undefined;
+      const blocked = this.blockedAgent(origin, target.agent);
+      if (blocked) return { message: this.openTextMenu(job, origin, { stage: "agents", mode: menu.view.mode ?? "send" },
+        blocked + (job.status === "awaiting_route" ? "原消息尚未发送。" : ""), true) };
       if ((target.projectId || target.sessionId) && this.catalogErrors.has(target.agent)) {
         return { message: this.openTextMenu(job, origin, menu.view, "该 Agent 的项目与会话目录暂不可用，原消息尚未发送。请稍后重新选择。", true) };
       }
@@ -863,7 +909,7 @@ export class BridgeCore {
     const fallback = () => {
       const context = this.routingContext(job.text, job.target, job.origin, job.id);
       return context.current.sessionId || context.current.creationKey || (context.current as Selection).engaged ?
-        [routeActions(context)[0]!] : [];
+        routeActions(context).filter((action) => action.id === "continue") : [];
     };
     try {
       if (job.routing.intent !== (this.get<number>("intent") ?? 0)) throw new BridgeError("STALE_TARGET", "等待期间当前目标已改变，请重新选择本次任务的目标。");
@@ -871,7 +917,7 @@ export class BridgeCore {
       if (Date.now() - Date.parse(job.queuedAt ?? job.createdAt) > 24 * 60 * 60_000) throw new BridgeError("STALE_TARGET", "任务已等待超过 24 小时，请确认目标后继续。");
       if (Date.now() - this.routeCatalogAt > 30_000) {
         await this.probeAgents();
-        await Promise.allSettled(agentIDs.filter((agent) => this.probes[agent]?.ready).map((agent) => this.refreshCatalog(agent)));
+        await Promise.allSettled(agentIDs.filter((agent) => this.probes[agent]?.ready && this.agentEnabled(agent)).map((agent) => this.refreshCatalog(agent)));
         this.routeCatalogAt = Date.now();
       }
       if (!valid()) return;
@@ -891,7 +937,7 @@ export class BridgeCore {
       if (chosen?.target && chosen.kind !== "control") await this.probeAgent(chosen.target.agent);
       if (!valid()) return;
       if (job.routing.intent !== (this.get<number>("intent") ?? 0) ||
-          JSON.stringify(context.settings) !== JSON.stringify(this.routingSettings())) {
+          JSON.stringify(context.settings) !== JSON.stringify(this.routingPreferences())) {
         throw new BridgeError("STALE_TARGET", "判断期间当前目标或设置已改变，请重新选择本次任务的目标。");
       }
       if (chosen?.target && chosen.kind !== "control" && (!this.probes[chosen.target.agent]?.ready || this.probes[chosen.target.agent]?.executionError)) {
@@ -1012,6 +1058,8 @@ export class BridgeCore {
     if (action.target) {
       const target = this.resolvedTarget(action.target);
       this.executable(target.agent);
+      const blocked = this.blockedAgent(job.origin, target.agent);
+      if (blocked) throw new BridgeError("AGENT_DISABLED", blocked);
       if (target.sessionId) {
         const session = this.find<Session>("session", target.sessionId);
         if (!session || session.agent !== target.agent || session.mode !== target.mode || session.projectId !== target.projectId) {
@@ -1120,7 +1168,9 @@ export class BridgeCore {
 
   private command(name: string, argument: string, origin: Origin): string | Receipt {
     const selected = this.selection();
-    if (name === "help") return commandGuide;
+    if (name === "help") return this.guide();
+    const browsing = ["new", "projects", "project", "sessions", "more"].includes(name) && this.blockedAgent(origin, selected.agent);
+    if (browsing) return browsing;
     if (name === "approve" || name === "deny") {
       const approval = this.find<Approval>("approval", argument);
       const job = approval && this.find<Job>("job", approval.jobId);
@@ -1170,6 +1220,9 @@ export class BridgeCore {
       if (!["waiting_agent", "awaiting_confirmation", "awaiting_route"].includes(job.status)) {
         throw new BridgeError("INVALID_STATE", "此任务不处于等待继续状态。");
       }
+      const blocked = job.routing ? undefined : this.blockedAgent(job.origin, job.target.agent);
+      if (blocked && origin.kind === "desktop") throw new BridgeError("AGENT_DISABLED", blocked);
+      if (blocked) return blocked;
       job.status = job.routing ? "routing" : "accepted";
       if (job.routing) job.routing = { intent: this.get<number>("intent") ?? 0 };
       job.queuedAt = new Date().toISOString(); delete job.error;
@@ -1216,11 +1269,13 @@ export class BridgeCore {
             (actions.length ? "\n" + actions.join("\n") : "");
         }).join("\n\n");
     }
-    if (name === "agent" && !argument) return agentIDs.map((id) => agentNames[id] + "：" + this.availabilityLabel(id) +
+    if (name === "agent" && !argument) return this.preferences().enabledAgents.map((id) => agentNames[id] + "：" + this.availabilityLabel(id) +
       (this.probes[id]?.ready === false ? "\n" + this.probes[id]!.reason : this.probes[id]?.executionError ? "\n" + this.probes[id]!.executionError : "") +
       "\n切换：/agent " + id).join("\n\n");
     if (name === "agent") {
       this.executable(argument);
+      const blocked = this.blockedAgent(origin, argument);
+      if (blocked) return blocked;
       this.navigationVersion++;
       this.clearMenu(origin);
       if (argument !== selected.agent) {
@@ -1270,6 +1325,8 @@ export class BridgeCore {
     if (name === "use") {
       const session = this.list<Session>("session").find((s) => s.shortId === argument);
       if (!session) throw new BridgeError("TARGET_MISSING", "此会话 ID 不存在。");
+      const blocked = this.blockedAgent(origin, session.agent);
+      if (blocked) return blocked;
       this.navigationVersion++;
       this.clearMenu(origin);
       if (selected.sessionId !== session.id || selected.agent !== session.agent || selected.mode !== session.mode || selected.projectId !== session.projectId) {
@@ -1408,6 +1465,11 @@ export class BridgeCore {
     if (this.closed) return;
     const job = this.find<Job>("job", jobId);
     if (!job || job.status !== "accepted") return;
+    const blocked = this.blockedAgent(job.origin, job.target.agent);
+    if (blocked) {
+      job.status = "cancelled"; job.error = blocked + "任务未发送。";
+      this.saveWaitingJob(job); this.changed(); return;
+    }
     if (Date.now() - Date.parse(job.queuedAt ?? job.createdAt) > 24 * 60 * 60 * 1000) {
       job.status = "awaiting_confirmation"; job.error = "排队超过 24 小时，需要确认后继续。";
       this.saveWaitingJob(job); this.changed(); return;

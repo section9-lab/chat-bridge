@@ -34,6 +34,21 @@ test("local service persists display settings through its IPC API", async () => 
   } finally { f.close(); }
 });
 
+test("enabled agents are validated, saved through IPC and published with the state", async () => {
+  const f = fixture();
+  try {
+    const initial = await f.native.call<{ preferences: { enabledAgents: string[] } }>("state.get");
+    assert.deepEqual(initial.preferences.enabledAgents, ["codex", "claude", "cursor", "grok", "opencode", "hermes"]);
+    for (const enabledAgents of [[], ["codex", "codex"], ["codex", "unknown"]]) {
+      await assert.rejects(f.native.call("preferences.update", { enabledAgents }), { code: "INVALID_INPUT" });
+    }
+    const state = await f.native.call<{ preferences: { enabledAgents: string[]; defaultAgent: string } }>("preferences.update", { enabledAgents: ["cursor", "claude"] });
+    assert.deepEqual(state.preferences.enabledAgents, ["claude", "cursor"]);
+    assert.equal(state.preferences.defaultAgent, "claude");
+    assert.deepEqual((await f.native.call<typeof state>("state.get")).preferences.enabledAgents, ["claude", "cursor"]);
+  } finally { f.close(); }
+});
+
 test("IPC publishes growing Markdown beyond 1000 characters and bounds large history snapshots", async () => {
   const directory = mkdtempSync(join(tmpdir(), "bridge-stream-ipc-"));
   const ab = new PassThrough(), ba = new PassThrough(), native = new RPCPeer(ba, ab, {});
