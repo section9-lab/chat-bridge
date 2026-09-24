@@ -106,9 +106,16 @@ final class MessageRenderingTests: XCTestCase {
             defer { window.close() }
             try await Task.sleep(nanoseconds: 100_000_000)
             service.state.messages[0].text = (1...50).map { "第 \($0) 段 **正文** 已生成。" }.joined(separator: "\n\n")
-            try await Task.sleep(nanoseconds: 300_000_000)
-            content.layoutSubtreeIfNeeded()
-            let scroll = try XCTUnwrap(descendants(content).compactMap { $0 as? NSScrollView }.first)
+            // Hosted CI runners can take longer than a local Mac to lay out fifty Markdown paragraphs.
+            var found: NSScrollView?
+            for _ in 0..<30 {
+                try await Task.sleep(nanoseconds: 100_000_000)
+                content.layoutSubtreeIfNeeded()
+                found = descendants(content).compactMap { $0 as? NSScrollView }.first
+                if let found, let document = found.documentView,
+                   document.bounds.height > found.contentView.bounds.height * 2, document.visibleRect.minY > 100 { break }
+            }
+            let scroll = try XCTUnwrap(found)
             let document = try XCTUnwrap(scroll.documentView)
             XCTAssertGreaterThan(document.bounds.height, scroll.contentView.bounds.height * 2)
             XCTAssertGreaterThan(document.visibleRect.minY, 100, "Text growth must scroll even when message count and ID stay the same")
