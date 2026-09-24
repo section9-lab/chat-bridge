@@ -126,14 +126,12 @@ struct RoutePendingSummary: Decodable {
 }
 struct RoutingState: Decodable {
     var provider: String?
-    var mode = "off"
+    var mode = "auto"
     var planning = "claude"
     var implementation = "cursor"
     var research = "default"
     var configured = false
-    var expired = false
     var verifiedAt: String?
-    var trialEndsAt: String?
 }
 
 struct RoutingProvider: Identifiable {
@@ -146,10 +144,13 @@ struct RoutingProvider: Identifiable {
     static let all = [
         Self(id: "vercel", name: "Vercel", keyURL: URL(string: "https://vercel.com/ai-gateway")!,
              infoURL: URL(string: "https://vercel.com/ai-gateway/models/jev")!,
-             note: "Jev 限时免费，可能需要验证付款方式。此入口于 9 月 25 日暂停。", recipients: "Vercel／TypeSafe"),
+             note: "Jev 按量计费，费用计入你的 Vercel 账户；可能需要先验证付款方式。保存并验证也会调用一次模型。", recipients: "Vercel／TypeSafe"),
         Self(id: "openrouter", name: "OpenRouter", keyURL: URL(string: "https://openrouter.ai/settings/keys")!,
              infoURL: URL(string: "https://openrouter.ai/typesafe/jev-1.13")!,
-             note: "Jev 按量计费。保存并验证也会调用一次模型，请先确认账户额度。", recipients: "OpenRouter／TypeSafe")
+             note: "Jev 按量计费，费用计入你的 OpenRouter 账户。保存并验证也会调用一次模型，请先确认账户额度。", recipients: "OpenRouter／TypeSafe"),
+        Self(id: "typesafe", name: "TypeSafe", keyURL: URL(string: "https://console.typesafe.ai/settings/keys")!,
+             infoURL: URL(string: "https://docs.typesafe.ai/api")!,
+             note: "Jev 官方接口，按量计费，费用计入你的 TypeSafe 账户；控制台目前需先申请开通。保存并验证也会调用一次模型。", recipients: "TypeSafe")
     ]
 }
 struct ApprovalSummary: Decodable, Identifiable {

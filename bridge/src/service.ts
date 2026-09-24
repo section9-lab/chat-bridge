@@ -125,7 +125,6 @@ export function createService(input: Readable, output: Writable, databasePath: s
     else if (patch.mode !== undefined && patch.mode !== "off") {
       if (!router.status().configured) await router.restore();
       if (!router.status().configured) throw new BridgeError("INVALID_INPUT", "请先保存并验证所选服务的 API Key。");
-      if (router.status().expired) throw new BridgeError("INVALID_INPUT", "Jev 免费试验已到期，请先核对新的价格方案。");
     }
     core.setRoutingSettings(patch as Partial<RoutingSettings>); return snapshot();
   });

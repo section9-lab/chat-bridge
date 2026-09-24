@@ -23,7 +23,7 @@ struct RoutingSettings: View {
                     selection: Binding(get: { provider.id }, set: { value in
                         Task { _ = await service.routing("configure", params: ["provider": value]) }
                     })).disabled(unavailable)
-                Text("分别保存 Key，逐个验证。切换服务会先关闭智能路由。")
+                Text("Chat Bridge 不提供 Key，也不代付费用；请用你自己的账户申请。分别保存 Key，逐个验证。切换服务会先关闭智能路由。")
                     .font(.system(size: 11)).foregroundStyle(.secondary)
             }
             HStack(alignment: .top) {
@@ -65,10 +65,10 @@ struct RoutingSettings: View {
                 }
                 HStack(spacing: 10) {
                     Button("保存并验证", action: save)
-                        .disabled(unavailable || apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || state.expired)
+                        .disabled(unavailable || apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     if state.configured {
                         Button("验证连接") { Task { _ = await service.routing("test", params: ["provider": provider.id]) } }
-                            .disabled(unavailable || state.expired)
+                            .disabled(unavailable)
                         Button("移除 Key") {
                             let id = provider.id
                             Task { if await service.routing("key.remove", params: ["provider": id]) { apiKeys[id] = ""; revealedProvider = nil } }
@@ -79,7 +79,7 @@ struct RoutingSettings: View {
                     Text(state.configured ? "已存入钥匙串" : "尚未配置")
                         .font(.system(size: 11)).foregroundStyle(.secondary)
                 }.buttonStyle(SettingsButtonStyle())
-                Text(state.expired ? "Vercel 免费试验已暂停，请先核对新的价格方案。" : provider.note)
+                Text(provider.note)
                     .font(.system(size: 11)).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true).lineSpacing(3)
                 if let error = service.routingError ?? keyError {

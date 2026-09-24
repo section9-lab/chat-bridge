@@ -8,8 +8,8 @@
 
 | 部分 | 实际行为 | 验证边界 |
 | --- | --- | --- |
-| 协议与路由 | 通道 → 路由 → AgentAdapter；默认确定性路由，可选 Jev 语义路由（Vercel／OpenRouter）；Codex 使用 App Server、Claude Code 使用官方 SDK，其余四个使用官方 ACP SDK。 | 协议、固定入口、未知方法及能力门控测试。 |
-| 智能路由 | 设置页选择 Vercel 或 OpenRouter，独立保存 Key 到原生钥匙串；验证后保留内容，眼睛按钮显示／隐藏，重新打开恢复已保存 Key；切换服务先关闭路由，保留当前会话。 | 247 项服务、62 项原生测试通过；新版已重启，实机验证移除入口、显示／隐藏与保存验证后 Key 保留，OpenRouter 连接通过；中文路由效果待验收。见 [验证记录](verification/smart-routing-2026-09-20.md)。 |
+| 协议与路由 | 通道 → 路由 → AgentAdapter；默认确定性路由，可选 Jev 语义路由（Vercel／OpenRouter／TypeSafe 官方，用户自备 Key）；Codex 使用 App Server、Claude Code 使用官方 SDK，其余四个使用官方 ACP SDK。 | 协议、固定入口、未知方法及能力门控测试。 |
+| 智能路由 | 设置页选择 Vercel、OpenRouter 或 TypeSafe 官方接口，Key 由用户用自己的账户申请、费用计入用户账户，独立保存到原生钥匙串；2026-09-24 起不再按日期停用 Vercel；验证后保留内容，眼睛按钮显示／隐藏，重新打开恢复已保存 Key；切换服务先关闭路由，保留当前会话。 | 247 项服务、62 项原生测试通过；新版已重启，实机验证移除入口、显示／隐藏与保存验证后 Key 保留，OpenRouter 连接通过；中文路由效果待验收。见 [验证记录](verification/smart-routing-2026-09-20.md)。 |
 | 会话引导与兜底（2026-09-21） | JEV 提供 Agent／项目／会话的范围查询、只切换、新建与续聊、任务控制及目标纠错；无法判断或服务失效时保留原消息并显示本地文本选项。多消息先选消息，支持无项目、分页、返回、取消和重新判断；已发送或状态不确定的消息不因更正而重发。 | 能力与失败矩阵见 [ADR 006](decisions/006-conversation-routing-options.md)，本轮测试、构建及在线验收边界见 [验证记录](verification/conversation-routing-options-2026-09-21.md)。 |
 | 自动探测 | 六个 Agent 启动及每 30 秒检测安装、登录／模型配置与连接；共享状态自动更新看板、菜单栏、微信和 iMessage。 | 并发检查合并、登录恢复、过期探测、执行异常和六 Agent 三入口路由测试；真实模型验证见 [本轮记录](verification/agent-availability-2026-09-20.md)。 |
 | Codex | 应用随包 CLI；复用已有登录；独立 stdio 子进程；无项目会话、原 ID 恢复、公开过程说明与最终正文流。 | 原有真实运行时 5 项检查，以及 [正文流实测](verification/streaming-codex-runtime-2026-09-19.json) 通过。 |

@@ -1,6 +1,6 @@
 # 智能路由首版计划与评估
 
-日期：2026-09-20。状态：首版配置和路由已实现，按最新要求保留 Vercel、OpenRouter 两种入口，移除 Jev for hood。验证后的 Key 保留在输入框，可显示／隐藏；用户已验证 OpenRouter 连接，中文路由准确率仍待实际评测。Vercel 免费期停用规则仅作用于 Vercel。实际范围与验证见 [ADR 005](decisions/005-semantic-routing.md) 和 [验证记录](verification/smart-routing-2026-09-20.md)。以下保留最初的设计与验收计划。
+日期：2026-09-20。状态：首版配置和路由已实现，按最新要求保留 Vercel、OpenRouter 两种入口，移除 Jev for hood。验证后的 Key 保留在输入框，可显示／隐藏；用户已验证 OpenRouter 连接，中文路由准确率仍待实际评测。2026-09-24 起取消 Vercel 按日期停用，并增加 TypeSafe 官方接口：Vercel、OpenRouter、TypeSafe 三种入口都由用户用自己的账户申请 Key，费用计入用户账户；Chat Bridge 只提供软件，不提供或代付 Key，出错时也不自动换服务。第 4 节关于试验停用时间的内容已不再适用。实际范围与验证见 [ADR 005](decisions/005-semantic-routing.md) 和 [验证记录](verification/smart-routing-2026-09-20.md)。以下保留最初的设计与验收计划。
 
 目标：用户用自然语言描述任务，Chat Bridge 自动选择 Agent、项目和会话；连续对话保持在同一原生会话，能够自然地新建、返回旧会话或退出项目。
 

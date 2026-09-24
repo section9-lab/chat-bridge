@@ -10,11 +10,13 @@ import { agentIDs, type AgentAdapter } from "../src/core.js";
 import { routingProviders } from "../src/routing.js";
 import Database from "better-sqlite3";
 
-const providers = ["vercel", "openrouter"];
+const providers = ["vercel", "openrouter", "typesafe"];
 const endpoints = {
   vercel: "https://ai-gateway.vercel.sh/typesafe/v1/systemone",
   openrouter: "https://openrouter.ai/api/alpha/decisions",
+  typesafe: "https://api.typesafe.ai/v1/systemone",
 };
+const models = { vercel: "typesafe-ai/jev", openrouter: "typesafe/jev-1.13", typesafe: "jev-1.13.0" };
 function fixture() {
   const directory = mkdtempSync(join(tmpdir(), "bridge-routing-providers-"));
   const ab = new PassThrough(), ba = new PassThrough(), secrets: Record<string, any> = {};
@@ -46,7 +48,7 @@ function fixture() {
       const body = JSON.parse(String(init?.body)); requests.push({ provider, body });
       const question = body.questions?.connection ? "connection" : "route";
       const options = Object.entries(body.questions[question].criteria as Record<string, string>).map(([id, label]) => ({ id, label }));
-      assert.equal(body.model, provider === "vercel" ? "typesafe-ai/jev" : "typesafe/jev-1.13");
+      assert.equal(body.model, models[provider as keyof typeof models]);
       const connection = options.some((option: any) => option.id === "ok");
       if (release && !connection) await release;
       const selected = connection ? "ok" : pick(provider, options);
@@ -76,6 +78,7 @@ test("each gateway accepts destination correction intent without sending a new t
   for (const provider of providers) await t.test(provider, async () => {
     const f = fixture();
     try {
+      f.service.core.setRoutingSettings({ mode: "off" }); // bootstrap an already-completed prior task before any provider is configured
       const original = await f.send("原任务");
       await f.select(provider); await f.save(provider);
       await f.native.call("routing.configure", { mode: "auto" });
@@ -102,6 +105,7 @@ test("clear recording follow-ups stay in the current session at the observed con
   for (const provider of providers) await t.test(provider, async () => {
     const f = fixture();
     try {
+      f.service.core.setRoutingSettings({ mode: "off" }); // bootstrap the current session before any provider is configured
       await f.send("按方案完成 Godot 卡牌游戏的战斗原型，并告诉我怎么试玩。");
       const selected = f.service.core.state().selection;
       await f.select(provider); await f.save(provider);
@@ -132,20 +136,21 @@ test("clear recording follow-ups stay in the current session at the observed con
   });
 });
 
-test("continuation tolerance never authorizes an uncertain or different destination", async (t) => {
+test("an uncertain task still runs: continuing, or in a fresh session when new or elsewhere; only confirm and no-target ask", async (t) => {
   const cases = [
-    { name: "uncertain relationship", intentProbability: 0.89 },
-    { name: "uncertain destination", routeProbability: 0.89 },
-    { name: "low intent confidence", intentConfidence: 0.79 },
-    { name: "low route confidence", routeConfidence: 0.79 },
-    { name: "new-task intent", intent: "new" },
-    { name: "different destination", route: "new_claude_none" },
-    { name: "no existing session", empty: true },
-    { name: "confirmation mode", confirm: true },
+    { name: "uncertain relationship", intentProbability: 0.89, expect: "same" },
+    { name: "uncertain destination", routeProbability: 0.89, expect: "same" },
+    { name: "low intent confidence", intentConfidence: 0.79, expect: "same" },
+    { name: "low route confidence", routeConfidence: 0.79, expect: "same" },
+    { name: "new-task intent", intent: "new", expect: "fresh" },
+    { name: "different destination", route: "new_claude_none", expect: "fresh" },
+    { name: "no existing session", empty: true, expect: "ask" },
+    { name: "confirmation mode", confirm: true, expect: "ask" },
   ];
   for (const value of cases) await t.test(value.name, async () => {
     const f = fixture();
     try {
+      f.service.core.setRoutingSettings({ mode: "off" }); // bootstrap the current session before any provider is configured
       if (!value.empty) await f.send("完成卡牌游戏原型。");
       const selected = f.service.core.state().selection, sends = f.sends.length;
       await f.select("openrouter"); await f.save("openrouter");
@@ -160,14 +165,30 @@ test("continuation tolerance never authorizes an uncertain or different destinat
         return response;
       });
       const receipt = await f.send("帮我录一个视频。");
-      assert.equal(f.service.core.state().jobs.find((job) => job.id === receipt.jobId)?.status, "awaiting_route");
-      assert.equal(f.sends.length, sends);
-      assert.deepEqual(f.service.core.state().selection, selected);
+      const status = f.service.core.state().jobs.find((job) => job.id === receipt.jobId)?.status;
+      if (value.expect === "ask") {
+        assert.equal(status, "awaiting_route");
+        assert.equal(f.sends.length, sends);
+        assert.deepEqual(f.service.core.state().selection, selected);
+      } else {
+        assert.equal(status, "completed");
+        assert.equal(f.sends.length, sends + 1);
+        // The fixture reuses one nativeId per agent, so compare the dispatched target instead.
+        const target = f.service.core.state().jobs.find((job) => job.id === receipt.jobId)!.target;
+        if (value.expect === "same") {
+          assert.equal(target.sessionId, selected.sessionId);
+          assert.deepEqual(f.service.core.state().selection, selected);
+        } else {
+          assert.notEqual(target.sessionId ?? null, selected.sessionId);
+          assert.ok(target.creationKey, "a new conversation was reserved");
+          assert.equal(target.projectId, null);
+        }
+      }
     } finally { f.close(); }
   });
 });
 
-test("routing providers retain separate keys and switches pause routing without changing the conversation", async () => {
+test("routing providers retain separate keys and switching providers keeps the current mode", async () => {
   const f = fixture();
   try {
     assert.equal((await f.native.call<any>("routing.get")).provider, "vercel");
@@ -178,7 +199,7 @@ test("routing providers retain separate keys and switches pause routing without 
       assert.deepEqual(f.secrets[provider], { apiKey: "fixture-" + provider });
     }
     const state = await f.select("vercel");
-    assert.equal(state.routing.mode, "off"); assert.equal(state.routing.configured, true);
+    assert.equal(state.routing.mode, "confirm"); assert.equal(state.routing.configured, true);
     assert.deepEqual(f.service.core.state().selection, selection);
     assert.deepEqual(Object.keys(f.secrets).sort(), providers.toSorted());
     assert.equal(JSON.stringify(state).includes("fixture-"), false);
@@ -189,17 +210,23 @@ test("routing providers retain separate keys and switches pause routing without 
   } finally { f.close(); }
 });
 
-test("OpenRouter can be tested after the Vercel promotion cutoff", async () => {
+test("every provider keeps working with the user's own key after the Vercel promotion date", async () => {
   const f = fixture();
   try {
     f.now("2026-10-01T00:00:00+08:00");
-    await assert.rejects(f.save("vercel"), /免费试验已到期/);
-    for (const provider of ["openrouter"]) {
+    for (const provider of providers) {
       await f.select(provider);
       const state = await f.save(provider);
-      assert.equal(state.routing.expired, false);
-      assert.equal(state.routing.trialEndsAt, null);
+      await f.native.call("routing.configure", { mode: "auto" });
+      assert.equal(state.routing.configured, true);
+      assert.equal("expired" in state.routing, false);
+      assert.equal("trialEndsAt" in state.routing, false);
     }
+    await f.select("vercel");
+    await f.native.call("routing.configure", { mode: "auto" });
+    await f.send("继续当前任务");
+    assert.equal(f.requests.at(-1)!.provider, "vercel");
+    assert.equal(f.sends.length, 1);
   } finally { f.close(); }
 });
 

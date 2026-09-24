@@ -6,7 +6,8 @@ enum KeychainVault {
     private static let credentials = [
         "weixin": (account: "weixin-v1", label: "微信"),
         "vercel": (account: "vercel-ai-gateway-v1", label: "Vercel AI Gateway"),
-        "openrouter": (account: "openrouter-v1", label: "OpenRouter")
+        "openrouter": (account: "openrouter-v1", label: "OpenRouter"),
+        "typesafe": (account: "typesafe-v1", label: "TypeSafe")
     ]
     static let methods = credentials.keys.flatMap { provider in
         ["read", "write", "remove"].map { "native.\(provider).credential.\($0)" }

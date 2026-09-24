@@ -1,17 +1,17 @@
 import { agentIDs, agentNames, BridgeError, type AgentProbe, type Project, type Session, type Target } from "./core.js";
 
-// Stop before the advertised September 25 promotion deadline, without paid fallback.
-export const routingTrialEndsAt = "2026-09-25T00:00:00+08:00";
+// Users bring their own key for any provider; usage is billed to their own account.
 export const routingProviders = {
   vercel: { name: "Vercel", endpoint: "https://ai-gateway.vercel.sh/typesafe/v1/systemone", model: "typesafe-ai/jev" },
   openrouter: { name: "OpenRouter", endpoint: "https://openrouter.ai/api/alpha/decisions", model: "typesafe/jev-1.13" },
+  typesafe: { name: "TypeSafe", endpoint: "https://api.typesafe.ai/v1/systemone", model: "jev-1.13.0" },
 } as const;
 export type RoutingProvider = keyof typeof routingProviders;
 export type RoutingSettings = { provider: RoutingProvider; mode: "off" | "confirm" | "auto"; planning: string; implementation: string; research: string };
 export const defaultRoutingSettings: RoutingSettings = { provider: "vercel", mode: "off", planning: "claude", implementation: "cursor", research: "default" };
 export type RouteScope = { agent: string; projectId?: string | null };
 export type RouteAction = { id: string; label: string; kind: "send" | "select" | "list" | "lookup" | "clarify" | "answer" | "control" | "correct";
-  target?: Target; scope?: RouteScope; command?: string; argument?: string; jobId?: string; createProject?: boolean };
+  target?: Target; scope?: RouteScope; command?: string; argument?: string; jobId?: string };
 export type RouteAnswer = { choice: string; confidence: number; probabilities: Record<string, number>; intent?: RouteAnswer };
 export function isConfidentRoute(answer: RouteAnswer, continuingCurrentSession = false): boolean {
   const scores = Object.values(answer.probabilities).sort((a, b) => b - a);
@@ -250,20 +250,23 @@ async function gatewayError(response: Response, provider: RoutingProvider): Prom
     reason = `${name} 额度不足（HTTP 402），未切换到其他服务或模型。`;
   } else if (response.status === 429) {
     reason = `${name} 请求限流（HTTP 429），请稍后重试。`;
+  } else if (response.status === 529) {
+    reason = `${name} 服务繁忙（HTTP 529），请稍后重试。`;
   } else {
     reason = `${name} 未能完成路由请求（HTTP ${response.status}），请检查接口或服务状态。`;
   }
   return new BridgeError("ROUTER_UNAVAILABLE", reason);
 }
 
+// The routing request carries the session catalog and history, so the decision model needs longer than a plain chat call.
+export const routingRequestTimeoutMs = 20_000;
+
 export class JevGateway {
   private key?: string;
   private verifiedAt?: string;
   constructor(private vault: { read(): Promise<{ apiKey: string } | null>; write(value: { apiKey: string }): Promise<void>; remove(): Promise<void> },
     private fetchFn: typeof fetch = fetch, private now: () => number = Date.now, readonly provider: RoutingProvider = "vercel") {}
-  status() { return { configured: Boolean(this.key), verifiedAt: this.verifiedAt,
-    trialEndsAt: this.provider === "vercel" ? routingTrialEndsAt : null,
-    expired: this.provider === "vercel" && this.now() >= Date.parse(routingTrialEndsAt) }; }
+  status() { return { configured: Boolean(this.key), verifiedAt: this.verifiedAt }; }
   private validKey(value: unknown): string {
     if (typeof value !== "string" || !/^[!-~]{1,4096}$/.test(value.trim())) throw new BridgeError("INVALID_INPUT", "请输入所选服务的有效 API Key，不要包含换行或空格。");
     return value.trim();
@@ -375,7 +378,6 @@ export class JevGateway {
   }
   private async evaluate(key: string | undefined, question: string, state: unknown, instructions: string, criteria: Record<string, unknown>,
     includeIntent = false): Promise<RouteAnswer & { intent?: RouteAnswer }> {
-    if (this.status().expired) throw new BridgeError("ROUTER_UNAVAILABLE", "Jev 免费试验已到期，路由请求已暂停。请先核对新的价格方案。");
     if (!key) throw new BridgeError("ROUTER_UNAVAILABLE", "请先在设置 → 智能路由中保存所选服务的 API Key。");
     const provider = routingProviders[this.provider];
     const request = { model: provider.model, state, questions: { [question]: { type: "choice", instructions, criteria },
@@ -398,7 +400,7 @@ export class JevGateway {
     try {
       const response = await this.fetchFn(provider.endpoint, {
         method: "POST", headers: { Authorization: "Bearer " + key, "Content-Type": "application/json" },
-        body, redirect: "error", signal: AbortSignal.timeout(8000),
+        body, redirect: "error", signal: AbortSignal.timeout(routingRequestTimeoutMs),
       });
       if (!response.ok) throw await gatewayError(response, this.provider);
       const data = await gatewayJSON(response, 256 * 1024);
@@ -408,7 +410,10 @@ export class JevGateway {
       if (error instanceof BridgeError) throw error;
       const cause = (error as { cause?: { code?: string } })?.cause?.code;
       if (cause && /CERT|TLS|SSL/.test(cause)) throw new BridgeError("ROUTER_UNAVAILABLE", `${provider.name} 的 HTTPS 证书验证失败，请等待服务方修复后重试。`);
-      throw new BridgeError("ROUTER_UNAVAILABLE", `${provider.name} 请求超时、连接失败或返回无效结果；请稍后重试。`);
+      if ((error as { name?: string })?.name === "AbortError" || (error as { name?: string })?.name === "TimeoutError") {
+        throw new BridgeError("ROUTER_UNAVAILABLE", `${provider.name} 在 ${routingRequestTimeoutMs / 1000} 秒内没有返回路由结果；请稍后重试。`);
+      }
+      throw new BridgeError("ROUTER_UNAVAILABLE", `${provider.name} 连接失败或返回无效结果；请稍后重试。`);
     }
   }
 }

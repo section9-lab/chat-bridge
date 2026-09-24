@@ -27,12 +27,12 @@ final class RoutingSettingsTests: XCTestCase {
     }
 
     func testCredentialIPCAllowsOnlySupportedProviders() {
-        for provider in ["vercel", "openrouter"] {
+        for provider in ["vercel", "openrouter", "typesafe"] {
             for action in ["read", "write", "remove"] {
                 XCTAssertTrue(KeychainVault.methods.contains("native.\(provider).credential.\(action)"))
             }
         }
-        XCTAssertEqual(RoutingProvider.all.map(\.id), ["vercel", "openrouter"])
+        XCTAssertEqual(RoutingProvider.all.map(\.id), ["vercel", "openrouter", "typesafe"])
         for action in ["read", "write", "remove"] {
             XCTAssertFalse(KeychainVault.methods.contains("native.jevforhood.credential.\(action)"))
         }
