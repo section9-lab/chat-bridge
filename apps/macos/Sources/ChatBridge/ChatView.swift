@@ -150,7 +150,7 @@ struct ChatView: View {
         .onExitCommand {
             if service.fileMention != nil { service.dismissFileSearch() } else { close() }
         }
-        .onChange(of: service.draftKey) { _, _ in service.dismissFileSearch() }
+        .onChanged(of: service.draftKey) { _ in service.dismissFileSearch() }
     }
     private var workspaceHeader: some View {
         HStack(spacing: 9) {
@@ -316,11 +316,11 @@ struct ChatView: View {
                     }
                 }
             }
-            .onChange(of: service.state.messages.count) { _, _ in proxy.scrollTo("end", anchor: .bottom) }
-            .onChange(of: messages.last?.text) { _, _ in proxy.scrollTo("end", anchor: .bottom) }
-            .onChange(of: service.state.approvals?.count) { _, _ in proxy.scrollTo("end", anchor: .bottom) }
-            .onChange(of: service.notice) { _, _ in proxy.scrollTo("end", anchor: .bottom) }
-            .onChange(of: service.viewedAgent) { _, _ in proxy.scrollTo("end", anchor: .bottom) }
+            .onChanged(of: service.state.messages.count) { _ in proxy.scrollTo("end", anchor: .bottom) }
+            .onChanged(of: messages.last?.text) { _ in proxy.scrollTo("end", anchor: .bottom) }
+            .onChanged(of: service.state.approvals?.count) { _ in proxy.scrollTo("end", anchor: .bottom) }
+            .onChanged(of: service.notice) { _ in proxy.scrollTo("end", anchor: .bottom) }
+            .onChanged(of: service.viewedAgent) { _ in proxy.scrollTo("end", anchor: .bottom) }
         }
     }
     private var composer: some View {
@@ -420,7 +420,7 @@ struct ChatView: View {
                             }
                         }
                     }.frame(height: min(CGFloat(service.fileSuggestions.count) * 44, 176))
-                    .onChange(of: service.highlightedFile) { _, index in
+                    .onChanged(of: service.highlightedFile) { index in
                         if service.fileSuggestions.indices.contains(index) { proxy.scrollTo(service.fileSuggestions[index].id) }
                     }
                 }

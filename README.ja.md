@@ -4,7 +4,7 @@
   <p>Mac の AI との会話を、WeChat と iMessage へ。</p>
   <p><a href="README.md">English</a> · <a href="README.zh-CN.md">中文</a> · <strong>日本語</strong> · <a href="README.ko.md">한국어</a> · <a href="README.fr.md">Français</a> · <a href="README.es.md">Español</a></p>
 
-![macOS](https://img.shields.io/badge/macOS-14%2B-17191C?style=flat-square)
+![macOS](https://img.shields.io/badge/macOS-13.5%2B-17191C?style=flat-square)
 [![Release](https://img.shields.io/github/v/release/section9-lab/chat-bridge?include_prereleases&style=flat-square&color=D5C5A8&labelColor=17191C)](https://github.com/section9-lab/chat-bridge/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-17191C?style=flat-square)](LICENSE)
 
@@ -76,7 +76,7 @@ open "dist/Chat Bridge.app"
 
 ## ご利用の前に
 
-- **macOS 14 以降**が必要です。Mac をスリープさせず、ネット接続と Chat Bridge の起動を維持してください。iMessage には「メッセージ」へのログインとフルディスクアクセスが必要です。古いデータベースとの互換性は検証が必要です。
+- **macOS 13.5 以降**が必要です。Mac をスリープさせず、ネット接続と Chat Bridge の起動を維持してください。iMessage には「メッセージ」へのログインとフルディスクアクセスが必要です。古いデータベースとの互換性は検証が必要です。
 - Mac では **@ファイル名** を入力すると候補からローカルファイルを検索・添付できます。左側のクリップからも同じ検索を開けます（1 メッセージ最大 10 件、各 50 MiB まで）。返信には元のメッセージの引用を表示します。WeChat と iMessage の入力は引き続き**テキストのみ**で、受信した音声・画像・添付ファイルは作業として実行しません。条件を満たす成果ファイルは元のチャットへ送信できます。
 - メッセージからファイルの変更、コマンド実行、ネットワークアクセスが行われます。Bridge が作成・再開する Codex／Claude Code の会話は、既定で完全な実行権限を使います。自分の信頼できるアカウントだけを連携してください。
 - 会話の状態は Mac に保存されます。メッセージは選択したチャネルとエージェントのサービスで処理され、スマートルーティング利用時はメッセージと送信先に関する情報が設定済みのサービスにも渡ります。

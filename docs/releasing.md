@@ -23,7 +23,7 @@ flowchart LR
 | Apple Silicon | `macos-15` | `macos-arm64.dmg` | `arm64` |
 | Intel | `macos-15-intel` | `macos-x86_64.dmg` | `x64` |
 
-Both runners use Xcode 16.4 and target macOS 14.0. The runner architecture is checked before building. Each job compiles Swift and installs native npm dependencies on its own host, avoiding cross-architecture SQLite binaries. Node is pinned by `.nvmrc` and downloaded from Node.js with its official SHA-256 manifest. npm and Swift use the committed lockfiles. Build caches are intentionally omitted for the first pipeline.
+Both runners use Xcode 16.4 and target macOS 13.5. The runner architecture is checked before building. Each job compiles Swift and installs native npm dependencies on its own host, avoiding cross-architecture SQLite binaries. Node is pinned by `.nvmrc` and downloaded from Node.js with its official SHA-256 manifest. npm and Swift use the committed lockfiles. Build caches are intentionally omitted for the first pipeline.
 
 The native app icon is compiled separately with Xcode 26+ using `bash scripts/build-icon.sh`. Commit the `AppIcon.icon` source together with `Assets.car` and `AppIcon.icns`. Both release jobs copy these architecture-independent resources; the asset catalog includes static fallbacks for older macOS versions. Icon generation does not raise the app's minimum macOS version or require a newer compiler on the release runners.
 

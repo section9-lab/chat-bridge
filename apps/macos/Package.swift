@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "ChatBridge",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS("13.5")],
     products: [.executable(name: "ChatBridge", targets: ["ChatBridge"])],
     dependencies: [
         .package(url: "https://github.com/gonzalezreal/swift-markdown-ui", exact: "2.4.1")

@@ -61,3 +61,13 @@ jobs:
       - name: Run the native tests
         working-directory: apps/macos
         run: swift test --force-resolved-versions
+      - name: Show crash reports
+        if: failure()
+        run: |
+          # A crashing test process only reports a signal; its report names the frame.
+          for report in ~/Library/Logs/DiagnosticReports/*.ips; do
+            [ -e "$report" ] || continue
+            echo "::group::$(basename "$report")"
+            head -c 60000 "$report"
+            echo "::endgroup::"
+          done

@@ -48,7 +48,7 @@ jobs:
     env:
       LANG: en_US.UTF-8
       DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
-      MACOSX_DEPLOYMENT_TARGET: '14.0'
+      MACOSX_DEPLOYMENT_TARGET: '13.5'
       CHAT_BRIDGE_SIGNING_IDENTITY: '-'
       CHAT_BRIDGE_RELEASE_TAG: ${{ github.ref_name }}
       CHAT_BRIDGE_BUILD_NUMBER: ${{ github.run_number }}

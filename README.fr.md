@@ -4,7 +4,7 @@
   <p>Vos conversations IA sur Mac, dans WeChat et iMessage.</p>
   <p><a href="README.md">English</a> · <a href="README.zh-CN.md">中文</a> · <a href="README.ja.md">日本語</a> · <a href="README.ko.md">한국어</a> · <strong>Français</strong> · <a href="README.es.md">Español</a></p>
 
-![macOS](https://img.shields.io/badge/macOS-14%2B-17191C?style=flat-square)
+![macOS](https://img.shields.io/badge/macOS-13.5%2B-17191C?style=flat-square)
 [![Release](https://img.shields.io/github/v/release/section9-lab/chat-bridge?include_prereleases&style=flat-square&color=D5C5A8&labelColor=17191C)](https://github.com/section9-lab/chat-bridge/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-17191C?style=flat-square)](LICENSE)
 
@@ -76,7 +76,7 @@ Chat Bridge utilise la connexion et la configuration de modèle locales de chaqu
 
 ## Avant de commencer
 
-- Nécessite **macOS 14 ou ultérieur**, un Mac éveillé et connecté, et Chat Bridge en cours d’exécution. iMessage nécessite aussi une connexion à Messages et l’accès complet au disque. La compatibilité avec les anciennes bases Messages reste à vérifier.
+- Nécessite **macOS 13.5 ou ultérieur**, un Mac éveillé et connecté, et Chat Bridge en cours d’exécution. iMessage nécessite aussi une connexion à Messages et l’accès complet au disque. La compatibilité avec les anciennes bases Messages reste à vérifier.
 - Sur Mac, saisissez **@nom de fichier** pour rechercher et joindre un fichier depuis les suggestions ; le trombone à gauche ouvre la même recherche (10 par message, 50 MiB chacun au maximum). Les réponses citent le message d’origine. Les entrées WeChat et iMessage restent **textuelles** : les messages vocaux, images et pièces jointes reçus ne sont pas exécutés comme des tâches. Les fichiers de résultat admissibles peuvent être renvoyés au canal d’origine.
 - Les messages peuvent déclencher des modifications de fichiers, des commandes et des accès réseau. Les conversations Codex／Claude Code créées ou reprises par Bridge disposent par défaut des autorisations d’exécution complètes. Associez uniquement vos propres comptes de confiance.
 - L’état des conversations est conservé sur le Mac. Les messages passent par les services de messagerie et d’agent choisis. Le routage intelligent transmet aussi le message et les informations de destination pertinentes au service configuré.

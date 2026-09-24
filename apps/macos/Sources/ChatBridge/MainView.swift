@@ -31,7 +31,7 @@ struct MainView: View {
             WindowBackground().overlay(Color(nsColor: .windowBackgroundColor).opacity(0.2)).ignoresSafeArea()
         }
         .frame(minWidth: 800, minHeight: 580)
-        .onChange(of: service.state.selection.agent) { _, agent in
+        .onChanged(of: service.state.selection.agent) { agent in
             if !hasChosenAgent { service.viewedAgent = agent }
         }
     }

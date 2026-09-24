@@ -63,7 +63,7 @@ struct OnboardingCard: View {
         .scaleEffect(flight.flying ? 0.03 : 1, anchor: .topTrailing)
         .opacity(flight.flying ? 0 : 1)
         .onAppear { refreshPicks(); syncRouting() }
-        .onChange(of: service.probes.map { "\($0.key):\($0.value.isAvailable)" }.sorted()) { _, _ in refreshPicks() }
+        .onChanged(of: service.probes.map { "\($0.key):\($0.value.isAvailable)" }.sorted()) { _ in refreshPicks() }
     }
 
     private var slide: AnyTransition {

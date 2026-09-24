@@ -21,7 +21,8 @@ struct RoutingSettings: View {
                 Text("路由服务").font(.system(size: 14, weight: .medium))
                 SettingsSegments(label: "路由服务", options: RoutingProvider.all.map { ($0.id, $0.name) },
                     selection: Binding(get: { provider.id }, set: { value in
-                        Task { _ = await service.routing("configure", params: ["provider": value]) }
+                        // Spelled out: Swift 6.3 cannot choose between the throwing and non-throwing Task initializers here.
+                        Task<Void, Never> { _ = await service.routing("configure", params: ["provider": value]) }
                     })).disabled(unavailable)
                 Text("Chat Bridge 不提供 Key，也不代付费用；请用你自己的账户申请。分别保存 Key，逐个验证。切换服务会先关闭智能路由。")
                     .font(.system(size: 11)).foregroundStyle(.secondary)

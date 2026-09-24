@@ -93,7 +93,7 @@ def publish(directory, tag, repository, commit):
 - **Intel:** `ChatBridge-{version['version']}-macos-x86_64.dmg`
 - **Checksums:** `SHA256SUMS.txt` (SHA-256)
 
-Requires macOS 14 or later. Open the DMG and drag **Chat Bridge** to **Applications**.
+Requires macOS 13.5 or later. Open the DMG and drag **Chat Bridge** to **Applications**.
 Node.js and the local bridge service are included. Install and sign in to your preferred AI agent separately.
 
 ## Signing and first launch

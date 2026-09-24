@@ -7,10 +7,11 @@ import XCTest
 @MainActor
 final class HiddenDesktop {
     private(set) var policy = NSApplication.ActivationPolicy.accessory
-    private let statusBar = NSStatusBar()
+    /// One private bar for the whole run. Releasing a bar together with its item crashes AppKit on macOS 14 and 15.
+    private static let statusBar = NSStatusBar()
 
     func makeDelegate() -> AppDelegate {
-        AppDelegate(desktop: Desktop(statusBar: statusBar, setActivationPolicy: { self.policy = $0 },
+        AppDelegate(desktop: Desktop(statusBar: Self.statusBar, setActivationPolicy: { self.policy = $0 },
                                      activate: {}, watchesOtherApps: false, prepare: hideFromScreen))
     }
 }

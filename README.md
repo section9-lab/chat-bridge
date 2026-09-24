@@ -4,7 +4,7 @@
   <p>Your desktop AI conversations, in WeChat and iMessage.</p>
   <p><strong>English</strong> · <a href="README.zh-CN.md">中文</a> · <a href="README.ja.md">日本語</a> · <a href="README.ko.md">한국어</a> · <a href="README.fr.md">Français</a> · <a href="README.es.md">Español</a></p>
 
-![macOS](https://img.shields.io/badge/macOS-14%2B-17191C?style=flat-square)
+![macOS](https://img.shields.io/badge/macOS-13.5%2B-17191C?style=flat-square)
 [![Release](https://img.shields.io/github/v/release/section9-lab/chat-bridge?include_prereleases&style=flat-square&color=D5C5A8&labelColor=17191C)](https://github.com/section9-lab/chat-bridge/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-17191C?style=flat-square)](LICENSE)
 
@@ -76,7 +76,7 @@ Uses each agent's local sign-in and model configuration. Start a conversation in
 
 ## Before you start
 
-- Requires **macOS 14+**, with the Mac awake, online, and Chat Bridge running. iMessage also requires Messages sign-in and Full Disk Access; compatibility with older Messages databases still needs validation.
+- Requires **macOS 13.5+**, with the Mac awake, online, and Chat Bridge running. iMessage also requires Messages sign-in and Full Disk Access; compatibility with older Messages databases still needs validation.
 - On your Mac, type **@filename** to search and attach local files from inline suggestions; the paperclip on the left opens the same search (up to 10 per message, 50 MiB each). Replies quote the original message. WeChat and iMessage input remains **text only**; incoming voice, images, and attachments are not executed as tasks. Eligible output files can be returned to the originating chat.
 - Messages can trigger file changes, commands, and network access. Codex and Claude Code conversations created or resumed by Bridge use full execution permissions by default. Pair only your own trusted accounts.
 - Conversation state stays on your Mac. Messages are processed by your selected messaging and agent services; smart routing also sends the message and relevant destination context to your configured routing provider.

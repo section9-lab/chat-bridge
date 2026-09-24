@@ -4,7 +4,7 @@
   <p>把电脑上的 AI 会话，带进微信和 iMessage。</p>
   <p><a href="README.md">English</a> · <strong>中文</strong> · <a href="README.ja.md">日本語</a> · <a href="README.ko.md">한국어</a> · <a href="README.fr.md">Français</a> · <a href="README.es.md">Español</a></p>
 
-![macOS](https://img.shields.io/badge/macOS-14%2B-17191C?style=flat-square)
+![macOS](https://img.shields.io/badge/macOS-13.5%2B-17191C?style=flat-square)
 [![Release](https://img.shields.io/github/v/release/section9-lab/chat-bridge?include_prereleases&style=flat-square&color=D5C5A8&labelColor=17191C)](https://github.com/section9-lab/chat-bridge/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-17191C?style=flat-square)](LICENSE)
 
@@ -76,7 +76,7 @@ open "dist/Chat Bridge.app"
 
 ## 使用前了解
 
-- 需要 **macOS 14+**，并保持 Mac 开机、联网和 Chat Bridge 运行。iMessage 还需要 Messages 登录及完全磁盘访问权限；旧系统数据库兼容性仍需验证。
+- 需要 **macOS 13.5+**，并保持 Mac 开机、联网和 Chat Bridge 运行。iMessage 还需要 Messages 登录及完全磁盘访问权限；旧系统数据库兼容性仍需验证。
 - 桌面输入框输入 **@文件名** 即可搜索并从候选列表添加文件，左侧回形针也可进入搜索（每条最多 10 个，每个不超过 50 MiB），回复会引用原始消息。微信和 iMessage 仍仅支持**文字输入**，收到的语音、图片和附件不会作为任务执行；符合要求的成果文件可发送回原通道。
 - 连接后，消息可以触发文件修改、命令和网络访问。Bridge 创建或恢复的 Codex／Claude Code 会话默认允许完整执行权限，请只绑定自己的可信账号。
 - 会话状态保存在 Mac 本地；消息仍经所选通道与 Agent 服务处理。开启智能路由后，消息和相关目标信息会交给你配置的路由服务判断。

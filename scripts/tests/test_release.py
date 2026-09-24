@@ -50,7 +50,7 @@ class ReleaseTests(unittest.TestCase):
         service.mkdir(parents=True)
         (app / "Contents/Info.plist").write_bytes(plistlib.dumps({
             "CFBundleIdentifier": "com.chatbridge.app", "CFBundleShortVersionString": "0.3.0",
-            "CFBundleVersion": "3", "LSMinimumSystemVersion": "14.0",
+            "CFBundleVersion": "3", "LSMinimumSystemVersion": "13.5",
         }))
         (service / "package.json").write_text(json.dumps({"name": "fixture", "version": "0.3.0"}))
         (service / "package-lock.json").write_text(json.dumps({
@@ -66,7 +66,7 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(info["CFBundleVersion"], "42")
         self.assertEqual(info["ChatBridgeReleaseVersion"], "1.2.3-rc.1")
         self.assertEqual(info["CFBundleIdentifier"], "com.chatbridge.app")
-        self.assertEqual(info["LSMinimumSystemVersion"], "14.0")
+        self.assertEqual(info["LSMinimumSystemVersion"], "13.5")
         service = app / "Contents/Resources/service"
         self.assertEqual(json.loads((service / "package.json").read_text())["version"], "1.2.3-rc.1")
         lock = json.loads((service / "package-lock.json").read_text())

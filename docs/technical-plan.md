@@ -435,7 +435,7 @@ TCC 对签名后的主应用、嵌入式 Node 和 osascript 的归因必须在�
 
 浮窗右上角新增独立的圆形 ↗「打开应用看板」按钮，点击后复用双栏看板窗口并显示 Dock 图标，不改变当前会话和草稿。看板最小化后点击 Dock 恢复原窗口；关闭看板后继续后台运行。原生测试与实机检查见 [看板与 Dock 验证](verification/dashboard-dock-2026-09-19.md)。
 
-消息正文采用 MarkdownUI 2.4.1 原生 SwiftUI 渲染，保留 macOS 14 最低版本；直接和传递依赖固定在 `Package.resolved`，许可证随包。标题、粗体、列表、引用、链接、GFM 表格与代码块使用同一个 `MessageMarkdown` 组件；普通软换行显示为换行，宽表格／代码块在气泡内横向滚动，正文可选择复制。用户气泡靠右并使用中性灰底，AI 气泡靠左，浮窗与看板规则一致。原始消息文本及通道出站格式不变。具体版本选择与 48 项原生回归见 [Markdown 消息卡验证](verification/message-markdown-2026-09-19.md)。
+消息正文采用 MarkdownUI 2.4.1 原生 SwiftUI 渲染，最低系统为 macOS 13.5；直接和传递依赖固定在 `Package.resolved`，许可证随包。标题、粗体、列表、引用、链接、GFM 表格与代码块使用同一个 `MessageMarkdown` 组件；普通软换行显示为换行，宽表格／代码块在气泡内横向滚动，正文可选择复制。用户气泡靠右并使用中性灰底，AI 气泡靠左，浮窗与看板规则一致。原始消息文本及通道出站格式不变。具体版本选择与 48 项原生回归见 [Markdown 消息卡验证](verification/message-markdown-2026-09-19.md)。
 
 正文流使用 Adapter 的 `message({ id, text, completed })` 钩子。Codex 只接收当前 thread／turn 的 `agentMessage` 增量和完成事件，包含 commentary 与 final_answer；Claude 开启 `includePartialMessages`，只处理主会话 text block，按 API message ID 和 block index 合并增量与完整块，忽略带 parent_tool_use_id 的子任务事件。思考、工具及日志事件不进入该钩子，必要的单次审批仍走独立审批流程。Codex 历史读取同样保留公开过程正文。
 

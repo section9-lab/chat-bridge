@@ -109,10 +109,10 @@ struct SettingsView: View {
                     .frame(maxWidth: .infinity, alignment: .leading).padding(28)
                 }
                 .scrollContentBackground(.hidden)
-                .onChange(of: service.state.channels?.weixin.qrContent) { _, _ in
+                .onChanged(of: service.state.channels?.weixin.qrContent) { _ in
                     if tab == 1 { proxy.scrollTo("weixin", anchor: .top) }
                 }
-                .onChange(of: service.channelErrors) { _, errors in
+                .onChanged(of: service.channelErrors) { errors in
                     if tab == 1, let channel = ["imessage", "weixin"].first(where: { errors[$0] != nil }) {
                         proxy.scrollTo(channel, anchor: .top)
                     }

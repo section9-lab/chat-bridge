@@ -20,7 +20,7 @@ assert info["CFBundleIdentifier"] == "com.chatbridge.app", "Wrong bundle identif
 assert info["CFBundleShortVersionString"] == version["app_version"], "Wrong app version"
 assert info["ChatBridgeReleaseVersion"] == version["version"], "Wrong release version"
 assert re.fullmatch(r"[1-9][0-9]*", info["CFBundleVersion"]), "Invalid build number"
-assert info["LSMinimumSystemVersion"] == "14.0", "Unexpected minimum macOS version"
+assert info["LSMinimumSystemVersion"] == "13.5", "Unexpected minimum macOS version"
 assert info["CFBundleIconName"] == "AppIcon", "Missing native app icon name"
 service = contents / "Resources/service"
 assert json.loads((service / "package.json").read_text())["version"] == version["version"], "Wrong service version"
@@ -59,7 +59,7 @@ for path in contents.rglob("*"):
     assert minimums, f"Missing minimum macOS version: {path}"
     for minimum in minimums:
         parts = tuple(map(int, minimum.split(".")))
-        assert (parts + (0, 0))[:3] <= (14, 0, 0), f"Requires macOS {minimum}, newer than the advertised 14.0: {path}"
+        assert (parts + (0, 0))[:3] <= (13, 5, 0), f"Requires macOS {minimum}, newer than the advertised 13.5: {path}"
 assert native_count >= 3, "App, Node and SQLite native binaries must be present"
 subprocess.run(["codesign", "--verify", "--deep", "--strict", str(app)], check=True)
 signature = subprocess.run(["codesign", "-d", "--verbose=4", str(app)], check=True,

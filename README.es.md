@@ -4,7 +4,7 @@
   <p>Tus conversaciones de IA del Mac, en WeChat e iMessage.</p>
   <p><a href="README.md">English</a> · <a href="README.zh-CN.md">中文</a> · <a href="README.ja.md">日本語</a> · <a href="README.ko.md">한국어</a> · <a href="README.fr.md">Français</a> · <strong>Español</strong></p>
 
-![macOS](https://img.shields.io/badge/macOS-14%2B-17191C?style=flat-square)
+![macOS](https://img.shields.io/badge/macOS-13.5%2B-17191C?style=flat-square)
 [![Release](https://img.shields.io/github/v/release/section9-lab/chat-bridge?include_prereleases&style=flat-square&color=D5C5A8&labelColor=17191C)](https://github.com/section9-lab/chat-bridge/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-17191C?style=flat-square)](LICENSE)
 
@@ -76,7 +76,7 @@ Utiliza el inicio de sesión y la configuración del modelo de cada agente en tu
 
 ## Antes de empezar
 
-- Requiere **macOS 14 o posterior**, con el Mac despierto, conectado a internet y Chat Bridge en ejecución. iMessage también necesita una sesión en Mensajes y acceso total al disco. La compatibilidad con bases de datos antiguas de Mensajes aún debe verificarse.
+- Requiere **macOS 13.5 o posterior**, con el Mac despierto, conectado a internet y Chat Bridge en ejecución. iMessage también necesita una sesión en Mensajes y acceso total al disco. La compatibilidad con bases de datos antiguas de Mensajes aún debe verificarse.
 - En Mac, escribe **@nombre de archivo** para buscar y adjuntar archivos desde las sugerencias; el clip de la izquierda abre la misma búsqueda (hasta 10 por mensaje y 50 MiB por archivo). Las respuestas citan el mensaje original. WeChat e iMessage siguen admitiendo solo **texto como entrada**; los audios, imágenes y archivos recibidos no se ejecutan como tareas. Los archivos de resultados compatibles pueden devolverse al chat de origen.
 - Los mensajes pueden provocar cambios en archivos, ejecutar comandos y acceder a la red. Las conversaciones de Codex／Claude Code creadas o retomadas por Bridge usan permisos completos de ejecución de forma predeterminada. Vincula únicamente tus propias cuentas de confianza.
 - El estado de las conversaciones se guarda en el Mac. Los mensajes pasan por los servicios de mensajería y del agente que elijas. El enrutamiento inteligente también envía el mensaje y los datos pertinentes del destino al proveedor configurado.
