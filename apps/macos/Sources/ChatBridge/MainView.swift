@@ -4,6 +4,7 @@ struct MainView: View {
     @ObservedObject var service: BridgeService
     @Environment(\.colorScheme) private var colorScheme
     var settings: () -> Void
+    var openFloating: () -> Void = {}
     @State private var search = ""
     @State private var hasChosenAgent = false
     @FocusState private var searchFocused: Bool
@@ -20,7 +21,7 @@ struct MainView: View {
             HStack(spacing: 0) {
                 sidebar
                     .frame(width: min(440, max(380, geometry.size.width * 0.43)))
-                ChatView(service: service, settings: settings, close: {}, workspace: true)
+                ChatView(service: service, settings: settings, close: {}, workspace: true, openFloating: openFloating)
                     .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 20))
                     .overlay(RoundedRectangle(cornerRadius: 20).stroke(.primary.opacity(0.04), lineWidth: 1))
                     .padding([.top, .trailing, .bottom], 8)

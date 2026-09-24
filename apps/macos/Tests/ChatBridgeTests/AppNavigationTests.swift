@@ -123,6 +123,35 @@ final class AppNavigationTests: XCTestCase {
         XCTAssertTrue(workspace.isVisible)
         XCTAssertEqual(application.activationPolicy(), .regular)
     }
+
+    @MainActor
+    func testDashboardArrowCollapsesIntoTheFloatingConversationAndBack() async throws {
+        let application = NSApplication.shared
+        let originalPolicy = application.activationPolicy()
+        application.setActivationPolicy(.accessory)
+        let delegate = AppDelegate()
+        defer {
+            for window in application.windows where ["Chat Bridge", "Chat Bridge 会话"].contains(window.title) { window.close() }
+            application.setActivationPolicy(originalPolicy)
+        }
+
+        delegate.showMainWindow()
+        let workspace = try XCTUnwrap(application.windows.first { $0.title == "Chat Bridge" && $0.isVisible })
+
+        delegate.showFloatingConversation()
+        let panel = try XCTUnwrap(application.windows.first { $0.title == "Chat Bridge 会话" })
+        XCTAssertTrue(panel.isVisible, "The dashboard arrow opens the floating conversation")
+        XCTAssertFalse(workspace.isVisible, "Collapsing hides the dashboard instead of stacking both")
+        XCTAssertEqual(application.activationPolicy(), .accessory, "Menu bar mode drops the Dock icon")
+
+        delegate.showFloatingConversation()
+        XCTAssertTrue(panel.isVisible, "Repeating the collapse must not toggle the panel closed")
+
+        delegate.showMainWindow()
+        XCTAssertTrue(workspace.isVisible)
+        XCTAssertFalse(panel.isVisible, "The floating arrow hands off to the dashboard")
+        XCTAssertEqual(application.activationPolicy(), .regular)
+    }
 }
 
 private final class PasteTestEditor: NSTextView {
@@ -135,4 +164,5 @@ private final class PasteTestEditor: NSTextView {
         // Exercise the real menu/responder chain without reading or replacing the user's clipboard.
         insertText("paste-check-only", replacementRange: selectedRange())
     }
+
 }

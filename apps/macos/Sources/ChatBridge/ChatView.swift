@@ -123,10 +123,7 @@ struct ChatView: View {
     private var composingBusy: Bool { service.importingAttachments.contains(service.draftKey) || service.sending.contains(service.draftKey) }
     var body: some View {
         VStack(spacing: 0) {
-            if workspace {
-                workspaceHeader
-                Divider().opacity(0.45)
-            }
+            if workspace { workspaceHeader }
             messageList
                 // Keep the shadow gutter outside the shared bubble and composer edges.
                 .padding(.horizontal, workspace ? 0 : -12)
@@ -137,18 +134,8 @@ struct ChatView: View {
         .padding(.bottom, workspace ? 0 : 30)
         .overlay(alignment: .topTrailing) {
             if !workspace {
-                Button(action: openDashboard) {
-                    Image(systemName: "arrow.up.right")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(dashboardHovered ? Color.accentColor : Color.secondary)
-                        .frame(width: 30, height: 30)
-                        .background(.background.opacity(0.85), in: Circle())
-                        .overlay(Circle().strokeBorder(dashboardHovered ? Color.accentColor : Color.secondary.opacity(0.35), lineWidth: 1))
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain).help("打开应用看板").accessibilityLabel("打开应用看板")
-                .onHover { dashboardHovered = $0 }
-                .padding(.top, 8).padding(.trailing, dashboardTrailingInset)
+                switchButton(systemName: "arrow.up.right", label: "打开应用看板", action: openDashboard)
+                    .padding(.top, 8).padding(.trailing, dashboardTrailingInset)
             }
         }
         .background {
@@ -173,19 +160,23 @@ struct ChatView: View {
                     .lineLimit(1)
             }
             Spacer()
-            Menu {
-                Button("新建会话") { service.send("/new") }.disabled(!ready)
-                Button("当前状态") { service.send("/status") }
-                Divider()
-                Button("切换项目与会话") { choosingSession = true }
-            } label: { Image(systemName: "ellipsis") }
-            .menuStyle(.borderlessButton).frame(width: 24).help("会话菜单")
-            .disabled(Agent.find(service.viewedAgent).comingSoon || !service.isRunning)
-            .popover(isPresented: $choosingSession, arrowEdge: .top) {
-                SessionBrowser(service: service) { choosingSession = false }
-            }
+            switchButton(systemName: "arrow.down.left", label: "收起到菜单栏会话", action: openFloating)
         }
-        .buttonStyle(.plain).padding(.horizontal, 22).padding(.vertical, 18)
+        .padding(.horizontal, 22).padding(.vertical, 18)
+    }
+    /// One quiet circular arrow switches between the floating conversation and the dashboard.
+    private func switchButton(systemName: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(switchHovered ? Color.accentColor : Color.secondary)
+                .frame(width: 30, height: 30)
+                .background(.background.opacity(0.85), in: Circle())
+                .overlay(Circle().strokeBorder(switchHovered ? Color.accentColor : Color.secondary.opacity(0.35), lineWidth: 1))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain).help(label).accessibilityLabel(label)
+        .onHover { switchHovered = $0 }
     }
     private var messageList: some View {
         ScrollViewReader { proxy in
@@ -283,12 +274,19 @@ struct ChatView: View {
             }
             .scrollIndicators(workspace ? .hidden : .never).scrollContentBackground(.hidden)
             .overlay(alignment: .top) {
-                if !workspace && !reduceTransparency {
-                    FrostedMaterial(cornerRadius: 0, blendingMode: .withinWindow, material: .headerView,
-                                    maskImage: MaterialMasks.fadeDown)
-                        .frame(height: 48)
-                        .allowsHitTesting(false).accessibilityHidden(true)
+                ZStack {
+                    if !reduceTransparency {
+                        FrostedMaterial(cornerRadius: 0, blendingMode: .withinWindow, material: .headerView,
+                                        maskImage: MaterialMasks.fadeDown)
+                    }
+                    if workspace {
+                        // Blend the blur into the white message surface so scrolled bubbles fade under the header.
+                        LinearGradient(colors: [Color(nsColor: .textBackgroundColor), Color(nsColor: .textBackgroundColor).opacity(0)],
+                                       startPoint: .top, endPoint: .bottom)
+                    }
                 }
+                .frame(height: workspace ? 36 : 48)
+                .allowsHitTesting(false).accessibilityHidden(true)
             }
             // Keep scroll input in empty gaps, and feather this hit surface with the content.
             .background(Color.black.opacity(workspace ? 0 : 0.004))
@@ -523,86 +521,3 @@ private struct AttachmentChip: View {
     }
 }
 
-private struct SessionBrowser: View {
-    @ObservedObject var service: BridgeService
-    var close: () -> Void
-    @State private var projects: [ProjectSummary] = []
-    @State private var sessions: [SessionSummary] = []
-    @State private var project = "all"
-    @State private var query = ""
-    @State private var nextOffset: Int?
-    @State private var loading = false
-    @State private var error: String?
-    @State private var generation = UUID()
-    @State private var catalogAgent = ""
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Picker("Agent", selection: Binding(get: { service.viewedAgent }, set: { service.openAgent($0) })) {
-                Text("Codex").tag("codex")
-                Text("Claude Code").tag("claude")
-            }.pickerStyle(.segmented)
-            HStack {
-                Picker("项目", selection: $project) {
-                    Text("全部项目").tag("all")
-                    Text("无项目").tag("none")
-                    ForEach(projects) { Text($0.name).tag($0.id) }
-                }
-                Button { Task { await load(refresh: true) } } label: { Image(systemName: "arrow.clockwise") }
-                    .buttonStyle(.plain).help("刷新原应用的项目与会话")
-            }
-            TextField("搜索会话", text: $query).textFieldStyle(.roundedBorder)
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 3) {
-                    ForEach(sessions) { session in
-                        Button {
-                            Task { if await service.navigate("/use " + session.shortId) { close() } }
-                        } label: {
-                            HStack(spacing: 8) {
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(session.title).font(.system(size: 12, weight: .medium)).lineLimit(2)
-                                    Text(projects.first(where: { $0.id == session.projectId })?.name ?? "无项目")
-                                        .font(.system(size: 10)).foregroundStyle(.secondary)
-                                }
-                                Spacer(minLength: 4)
-                                if session.id == service.state.selection.sessionId { Image(systemName: "checkmark").font(.system(size: 11)) }
-                            }.padding(9).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-                        }.buttonStyle(.plain).disabled(!service.opening.isEmpty)
-                    }
-                    if let nextOffset {
-                        Button("加载更多会话") { Task { await load(offset: nextOffset) } }.padding(8).disabled(loading)
-                    }
-                    if loading { ProgressView().controlSize(.small).frame(maxWidth: .infinity).padding(12) }
-                    if !loading && sessions.isEmpty { Text("没有匹配的会话").foregroundStyle(.secondary).padding(12) }
-                }
-            }.frame(height: 280)
-            if let error { Text(error).font(.caption).foregroundStyle(.secondary).lineLimit(3) }
-            Divider()
-            Button(project == "all" || project == "none" ? "新建无项目会话" : "在此项目新建会话") {
-                let code = projects.first(where: { $0.id == project })?.shortId ?? "none"
-                Task { if await service.navigate("/project " + code) { close() } }
-            }.disabled(!service.opening.isEmpty || service.state.selection.agent != service.viewedAgent)
-        }
-        .padding(16).frame(width: 330)
-        .onChange(of: service.viewedAgent) { _, _ in project = "all"; query = "" }
-        .task(id: service.viewedAgent + ":" + project + ":" + query) {
-            try? await Task.sleep(nanoseconds: 150_000_000)
-            if !Task.isCancelled { await load(refresh: catalogAgent != service.viewedAgent) }
-        }
-    }
-    private func load(offset: Int = 0, refresh: Bool = false) async {
-        let current = UUID(); generation = current; loading = true; error = nil
-        let agent = service.viewedAgent
-        do {
-            let result = try await service.catalog(project: project == "all" ? nil : project, query: query, offset: offset, refresh: refresh)
-            guard generation == current, service.viewedAgent == agent, !Task.isCancelled else { return }
-            projects = result.projects
-            catalogAgent = agent
-            sessions = offset == 0 ? result.sessions : sessions + result.sessions
-            nextOffset = result.nextOffset
-        } catch {
-            guard generation == current else { return }
-            self.error = error.localizedDescription
-        }
-        if generation == current { loading = false }
-    }
-}

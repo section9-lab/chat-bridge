@@ -99,7 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         updateStatusLogo()
     }
     @objc private func repositionPanel() {
-        guard let button = statusItem.button, let window = button.window, let panel else { return }
+        guard let button = statusItem?.button, let window = button.window, let panel else { return }
         let anchor = window.convertToScreen(button.convert(button.bounds, to: nil))
         let screen = window.screen ?? NSScreen.main
         guard let visible = screen?.visibleFrame else { return }
@@ -139,13 +139,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             window.delegate = self
             window.contentMinSize = NSSize(width: 800, height: 580)
             window.contentView = NSHostingView(rootView: MainView(service: service,
-                settings: { [weak self] in self?.showSettings() }).ignoresSafeArea())
+                settings: { [weak self] in self?.showSettings() },
+                openFloating: { [weak self] in self?.showFloatingConversation() }).ignoresSafeArea())
             window.center()
             mainWindow = window
         }
         if mainWindow?.isMiniaturized == true { mainWindow?.deminiaturize(nil) }
         mainWindow?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+    /// Collapses the dashboard back into the menu bar conversation, preserving the viewed Agent and draft.
+    func showFloatingConversation() {
+        if panel?.isVisible == true { hidePanel() }
+        toggleAgent()
     }
     func showSettings() {
         hidePanel()
