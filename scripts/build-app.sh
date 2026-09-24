@@ -23,6 +23,8 @@ node "$BRIDGE_ROOT/scripts/patch-imessage.mjs"
 npm run build
 npm test
 cd "$BRIDGE_ROOT/apps/macos"
+# Tests that need the real menu bar, Dock and window server run for releases; set CHAT_BRIDGE_UI_TESTS=1 to run them locally.
+if [ -n "${CHAT_BRIDGE_RELEASE_TAG:-}" ]; then export CHAT_BRIDGE_UI_TESTS=1; fi
 swift test --force-resolved-versions
 swift build -c release --force-resolved-versions
 BRIDGE_SWIFT_BIN="$(swift build -c release --show-bin-path)"

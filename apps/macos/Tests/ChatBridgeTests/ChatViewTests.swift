@@ -50,6 +50,8 @@ final class ChatViewTests: XCTestCase {
 
     @MainActor
     func testConversationGapsReceiveMouseEventsThroughTheTranslucentBackdrop() async throws {
+        // Hit-testing transparent pixels is done by the window server, so the panel has to be really on screen.
+        try requireDesktop()
         _ = NSApplication.shared
         let service = BridgeService()
         service.state.messages = (0..<20).map {

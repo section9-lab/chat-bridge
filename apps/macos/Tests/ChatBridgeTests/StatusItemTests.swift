@@ -14,7 +14,7 @@ final class StatusItemTests: XCTestCase {
     func testSystemStatusButtonRepeatedlyOpensAndClosesConversation() async throws {
         let application = NSApplication.shared
         let existingWindows = Set(application.windows.map(\.windowNumber))
-        let delegate = AppDelegate()
+        let delegate = HiddenDesktop().makeDelegate()
         delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
         defer {
             delegate.applicationWillTerminate(Notification(name: NSApplication.willTerminateNotification))
@@ -51,6 +51,8 @@ final class StatusItemTests: XCTestCase {
 
     @MainActor
     func testFloatingPanelDashboardActionReusesWorkspaceAndDraft() async throws {
+        // Clicks the dashboard arrow where it lines up with the real menu bar item.
+        try requireDesktop()
         let application = NSApplication.shared
         let originalPolicy = application.activationPolicy()
         let existingWindows = Set(application.windows.map(\.windowNumber))

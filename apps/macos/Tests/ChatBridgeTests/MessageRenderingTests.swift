@@ -284,6 +284,7 @@ final class MessageRenderingTests: XCTestCase {
         window.isReleasedWhenClosed = false
         let content = NSHostingView(rootView: root)
         window.contentView = content
+        hideFromScreen(window)
         window.orderFrontRegardless()
         content.layoutSubtreeIfNeeded()
         return (window, content)

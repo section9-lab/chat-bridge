@@ -9,6 +9,7 @@ final class ComposerAttachmentTests: XCTestCase {
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 500, height: 400),
                               styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
+        hideFromScreen(window)
         window.makeKeyAndOrderFront(nil)
         defer { window.close() }
         let service = BridgeService()

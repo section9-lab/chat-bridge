@@ -18,6 +18,7 @@ final class ComposerTextViewTests: XCTestCase {
             window.isReleasedWhenClosed = false
             window.appearance = NSAppearance(named: .aqua)
             window.contentView = content
+            hideFromScreen(window)
             window.makeKeyAndOrderFront(nil)
             defer { service.dismissFileSearch(); window.close() }
             content.layoutSubtreeIfNeeded()

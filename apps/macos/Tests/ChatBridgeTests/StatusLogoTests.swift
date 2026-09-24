@@ -67,8 +67,7 @@ final class StatusLogoTests: XCTestCase {
     private func withApplication(_ verify: (AppDelegate, NSStatusBarButton) throws -> Void) throws {
         let application = NSApplication.shared
         let existing = Set(application.windows.map(\.windowNumber))
-        let policy = application.activationPolicy()
-        let delegate = AppDelegate()
+        let delegate = HiddenDesktop().makeDelegate()
         delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
         defer {
             delegate.applicationWillTerminate(Notification(name: NSApplication.willTerminateNotification))
@@ -76,7 +75,6 @@ final class StatusLogoTests: XCTestCase {
                 if let sheet = window.attachedSheet { window.endSheet(sheet) }
                 if window.title.hasPrefix("Chat Bridge") { window.close() }
             }
-            application.setActivationPolicy(policy)
         }
         let button = try XCTUnwrap(application.windows.filter { !existing.contains($0.windowNumber) }
             .compactMap { statusButton(in: $0.contentView) }.first)

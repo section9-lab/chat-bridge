@@ -6,9 +6,22 @@ final class ChatPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
+/// What AppDelegate changes outside its own windows: the Dock icon, focus, the menu bar item and clicks in other apps.
+/// Tests pass a desktop that keeps all of this to themselves, so a test run never shows up on the person's screen.
+@MainActor
+struct Desktop {
+    var statusBar = NSStatusBar.system
+    var setActivationPolicy: (NSApplication.ActivationPolicy) -> Void = { NSApp.setActivationPolicy($0) }
+    var activate: () -> Void = { NSApp.activate(ignoringOtherApps: true) }
+    var watchesOtherApps = true
+    /// Runs once on each window before it is first shown.
+    var prepare: (NSWindow) -> Void = { _ in }
+}
+
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let service = BridgeService()
+    private let desktop: Desktop
     private var statusItem: NSStatusItem!
     private var panel: ChatPanel?
     private var mainWindow: NSWindow?
@@ -17,8 +30,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var globalMonitor: Any?
     private lazy var onboarding = OnboardingCoordinator(service: service,
         statusItemFrame: { [weak self] in self?.statusItem?.button?.window?.frame },
-        completed: { [weak self] in if self?.mainWindow?.isVisible != true { NSApp.setActivationPolicy(.accessory) } },
+        completed: { [weak self] in if self?.mainWindow?.isVisible != true { self?.desktop.setActivationPolicy(.accessory) } },
         postponed: { [weak self] in self?.showMainWindow() })
+
+    init(desktop: Desktop) {
+        self.desktop = desktop
+        super.init()
+    }
+    override convenience init() { self.init(desktop: Desktop()) }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let menu = NSMenu()
@@ -46,7 +65,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         editMenu.addItem(withTitle: "全选", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         editItem.submenu = editMenu; menu.addItem(editItem)
         NSApp.mainMenu = menu
-        statusItem = NSStatusBar.system.statusItem(withLength: 32)
+        statusItem = desktop.statusBar.statusItem(withLength: 32)
         guard let button = statusItem.button else { return }
         button.title = ""
         button.image = AppLogo.statusImage()
@@ -68,8 +87,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
             return event
         }
-        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
-            self?.hidePanel()
+        if desktop.watchesOtherApps {
+            globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+                self?.hidePanel()
+            }
         }
         NotificationCenter.default.addObserver(self, selector: #selector(repositionPanel),
             name: NSApplication.didChangeScreenParametersNotification, object: nil)
@@ -87,7 +108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func toggleAgent(_ id: String? = nil) {
         closeSettings()
         mainWindow?.orderOut(nil)
-        NSApp.setActivationPolicy(.accessory)
+        desktop.setActivationPolicy(.accessory)
         if panel?.isVisible == true && (id == nil || service.viewedAgent == id) { hidePanel(); return }
         if let id { service.openAgent(id) }
         if panel == nil {
@@ -105,6 +126,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             window.contentView = NSHostingView(rootView: ChatView(service: service,
                 settings: { [weak self] in self?.showSettings() }, close: { [weak self] in self?.hidePanel() },
                 openDashboard: { [weak self] in self?.showMainWindow() }))
+            desktop.prepare(window)
             panel = window
         }
         repositionPanel()
@@ -138,7 +160,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
     func showMainWindow() {
         hidePanel()
-        NSApp.setActivationPolicy(.regular)
+        desktop.setActivationPolicy(.regular)
         if mainWindow == nil {
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 720),
                 styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
@@ -155,11 +177,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 settings: { [weak self] in self?.showSettings() },
                 openFloating: { [weak self] in self?.showFloatingConversation() }).ignoresSafeArea())
             window.center()
+            desktop.prepare(window)
             mainWindow = window
         }
         if mainWindow?.isMiniaturized == true { mainWindow?.deminiaturize(nil) }
         mainWindow?.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        desktop.activate()
     }
     /// Collapses the dashboard back into the menu bar conversation, preserving the viewed Agent and draft.
     func showFloatingConversation() {
@@ -188,12 +211,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 openAgent: { [weak self] id in self?.toggleAgent(id) },
                 close: { [weak self] in self?.closeSettings() },
                 showOnboarding: { [weak self] in self?.openOnboarding() }).ignoresSafeArea())
+            desktop.prepare(window)
             settingsWindow = window
         }
         if let settingsWindow, settingsWindow.sheetParent == nil {
             mainWindow?.beginSheet(settingsWindow)
         }
-        NSApp.activate(ignoringOtherApps: true)
+        desktop.activate()
     }
     private func closeSettings() {
         guard let settingsWindow else { return }
@@ -204,7 +228,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
         guard let window = notification.object as? NSWindow, window === mainWindow else { return }
         closeSettings()
-        NSApp.setActivationPolicy(.accessory)
+        desktop.setActivationPolicy(.accessory)
     }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         showMainWindow()
@@ -221,7 +245,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if let globalMonitor { NSEvent.removeMonitor(globalMonitor) }
         NotificationCenter.default.removeObserver(self)
         NSWorkspace.shared.notificationCenter.removeObserver(self)
-        if let statusItem { NSStatusBar.system.removeStatusItem(statusItem) }
+        if let statusItem { desktop.statusBar.removeStatusItem(statusItem) }
         service.stop()
     }
 }

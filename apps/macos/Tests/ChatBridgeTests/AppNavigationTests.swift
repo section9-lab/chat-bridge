@@ -14,9 +14,8 @@ final class AppNavigationTests: XCTestCase {
         let application = NSApplication.shared
         let originalMenu = application.mainMenu
         let originalResponder = application.nextResponder
-        let originalPolicy = application.activationPolicy()
         let existingWindows = Set(application.windows.map(\.windowNumber))
-        let delegate = AppDelegate()
+        let delegate = HiddenDesktop().makeDelegate()
         delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
         defer {
             delegate.applicationWillTerminate(Notification(name: NSApplication.willTerminateNotification))
@@ -26,7 +25,6 @@ final class AppNavigationTests: XCTestCase {
             }
             application.mainMenu = originalMenu
             application.nextResponder = originalResponder
-            application.setActivationPolicy(originalPolicy)
         }
 
         let editor = PasteTestEditor(frame: NSRect(x: 0, y: 0, width: 300, height: 100))
@@ -50,7 +48,7 @@ final class AppNavigationTests: XCTestCase {
     @MainActor
     func testLaunchOpensConversationWindowInsteadOfSettings() async {
         let application = NSApplication.shared
-        let delegate = AppDelegate()
+        let delegate = HiddenDesktop().makeDelegate()
         delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
         defer {
             delegate.applicationWillTerminate(Notification(name: NSApplication.willTerminateNotification))
@@ -68,7 +66,7 @@ final class AppNavigationTests: XCTestCase {
     @MainActor
     func testReopenReturnsToConversationWindow() async {
         let application = NSApplication.shared
-        let delegate = AppDelegate()
+        let delegate = HiddenDesktop().makeDelegate()
         defer {
             for window in application.windows where window.title.hasPrefix("Chat Bridge") {
                 window.close()
@@ -83,31 +81,31 @@ final class AppNavigationTests: XCTestCase {
     @MainActor
     func testWorkspaceShowsInDockAndClosingReturnsToMenuBar() async throws {
         let application = NSApplication.shared
-        let originalPolicy = application.activationPolicy()
-        application.setActivationPolicy(.accessory)
-        let delegate = AppDelegate()
+        let desktop = HiddenDesktop()
+        let delegate = desktop.makeDelegate()
         defer {
             for window in application.windows where window.title == "Chat Bridge" { window.close() }
-            application.setActivationPolicy(originalPolicy)
         }
 
         delegate.showMainWindow()
         let workspace = try XCTUnwrap(application.windows.first { $0.title == "Chat Bridge" && $0.isVisible })
-        XCTAssertEqual(application.activationPolicy(), .regular, "The dashboard must have a Dock icon")
+        XCTAssertEqual(desktop.policy, .regular, "The dashboard must have a Dock icon")
         delegate.showMainWindow()
         XCTAssertEqual(application.windows.filter { $0.title == "Chat Bridge" && $0.isVisible }.count, 1)
         XCTAssertTrue(workspace.isVisible)
 
         workspace.close()
-        XCTAssertEqual(application.activationPolicy(), .accessory, "Closing the dashboard should keep the menu bar app running")
+        XCTAssertEqual(desktop.policy, .accessory, "Closing the dashboard should keep the menu bar app running")
         XCTAssertFalse(delegate.applicationShouldTerminateAfterLastWindowClosed(application))
         _ = delegate.applicationShouldHandleReopen(application, hasVisibleWindows: false)
         XCTAssertTrue(workspace.isVisible, "Reopening should reuse the original workspace")
-        XCTAssertEqual(application.activationPolicy(), .regular)
+        XCTAssertEqual(desktop.policy, .regular)
     }
 
     @MainActor
     func testDockReopenRestoresMinimizedWorkspace() async throws {
+        // Minimizing animates the real window into the real Dock.
+        try requireDesktop()
         let application = NSApplication.shared
         let originalPolicy = application.activationPolicy()
         application.setActivationPolicy(.regular)
@@ -133,12 +131,10 @@ final class AppNavigationTests: XCTestCase {
     @MainActor
     func testDashboardArrowCollapsesIntoTheFloatingConversationAndBack() async throws {
         let application = NSApplication.shared
-        let originalPolicy = application.activationPolicy()
-        application.setActivationPolicy(.accessory)
-        let delegate = AppDelegate()
+        let desktop = HiddenDesktop()
+        let delegate = desktop.makeDelegate()
         defer {
             for window in application.windows where ["Chat Bridge", "Chat Bridge 会话"].contains(window.title) { window.close() }
-            application.setActivationPolicy(originalPolicy)
         }
 
         delegate.showMainWindow()
@@ -148,7 +144,7 @@ final class AppNavigationTests: XCTestCase {
         let panel = try XCTUnwrap(application.windows.first { $0.title == "Chat Bridge 会话" })
         XCTAssertTrue(panel.isVisible, "The dashboard arrow opens the floating conversation")
         XCTAssertFalse(workspace.isVisible, "Collapsing hides the dashboard instead of stacking both")
-        XCTAssertEqual(application.activationPolicy(), .accessory, "Menu bar mode drops the Dock icon")
+        XCTAssertEqual(desktop.policy, .accessory, "Menu bar mode drops the Dock icon")
 
         delegate.showFloatingConversation()
         XCTAssertTrue(panel.isVisible, "Repeating the collapse must not toggle the panel closed")
@@ -156,7 +152,7 @@ final class AppNavigationTests: XCTestCase {
         delegate.showMainWindow()
         XCTAssertTrue(workspace.isVisible)
         XCTAssertFalse(panel.isVisible, "The floating arrow hands off to the dashboard")
-        XCTAssertEqual(application.activationPolicy(), .regular)
+        XCTAssertEqual(desktop.policy, .regular)
     }
 }
 
