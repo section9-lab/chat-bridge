@@ -11,9 +11,9 @@ final class GrowthDiagnosticsTests: XCTestCase {
     @MainActor
     func testReportGrowth() async throws {
         let os = ProcessInfo.processInfo.operatingSystemVersionString
-        func variant<V: View>(_ name: String, _ make: @escaping (Model) -> V) async throws {
+        func variant<V: View>(_ name: String, width: CGFloat = 380, _ make: @escaping (Model) -> V) async throws {
             let model = Model()
-            let (window, content) = host(Wrapper(model: model, make: make), width: 380, height: 500)
+            let (window, content) = host(Wrapper(model: model, make: make), width: width, height: 500)
             defer { window.close() }
             try await Task.sleep(nanoseconds: 200_000_000)
             model.text = long
@@ -29,6 +29,35 @@ final class GrowthDiagnosticsTests: XCTestCase {
         try await variant("vstack-markdown-equatable") { m in ScrollView { VStack { MessageMarkdown(text: m.text).equatable() } } }
         try await variant("lazy-bubble") { m in
             ScrollView { LazyVStack { MessageBubble { VStack(alignment: .leading) { MessageMarkdown(text: m.text).equatable() } } } }
+        }
+        for lazy in [true, false] {
+            for follow in [false, true] {
+                try await variant("wide-bubble-lazy-\(lazy)-follow-\(follow)", width: 720) { m in
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            Group {
+                                if lazy { LazyVStack { self.probeMessage(m.text) } }
+                                else { VStack { self.probeMessage(m.text) } }
+                            }.padding(24)
+                        }
+                        .scrollIndicators(.hidden)
+                        .frame(height: 333)
+                        .onChanged(of: m.text) { _ in
+                            if follow { proxy.scrollTo("end", anchor: .bottom) }
+                        }
+                    }
+                }
+            }
+        }
+        try await variant("wide-bubble-never", width: 720) { m in
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack { self.probeMessage(m.text) }.padding(24)
+                }
+                .scrollIndicators(.never)
+                .frame(height: 333)
+                .onChanged(of: m.text) { _ in proxy.scrollTo("end", anchor: .bottom) }
+            }
         }
         for workspace in [false, true] {
             let service = BridgeService()
@@ -52,8 +81,25 @@ final class GrowthDiagnosticsTests: XCTestCase {
         var make: (Model) -> V
         var body: some View { make(model) }
     }
+    private func probeMessage(_ text: String) -> some View {
+        Group {
+            MessageBubble(maxWidth: 640) {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Image(systemName: "message").frame(width: 20, height: 20)
+                        Text("Agent").font(.system(size: 12, weight: .semibold))
+                    }
+                    VStack(alignment: .leading, spacing: 8) { MessageMarkdown(text: text).equatable() }
+                }
+            }
+            Color.clear.frame(height: 1).id("end")
+        }
+    }
     @MainActor
     private func report(_ label: String, _ content: NSView) {
+        for card in descendants(content).compactMap({ $0 as? NSVisualEffectView }).filter({ $0.layer?.cornerRadius == 22 }) {
+            print("DIAG \(label) bubble=\(card.frame)")
+        }
         for (index, scroll) in descendants(content).compactMap({ $0 as? NSScrollView }).enumerated() {
             let document = scroll.documentView
             print("DIAG \(label) #\(index) \(type(of: scroll)) clip=\(scroll.contentView.bounds.size) "

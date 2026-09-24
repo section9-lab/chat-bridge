@@ -16,7 +16,6 @@ struct MessageMarkdown: View, Equatable {
                 MessageMediaView(media: media)
             }
         }
-        .fixedSize(horizontal: false, vertical: true)
     }
 
     private static let theme = Theme.basic
