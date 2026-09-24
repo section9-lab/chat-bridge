@@ -32,6 +32,9 @@ export function createService(input: Readable, output: Writable, databasePath: s
     onExecution: (error) => { if (!closed) core.recordAgentExecution(id, error); },
   });
   const core = new BridgeCore(databasePath, agents);
+  // A genuinely fresh install tries Jev by default; anyone who has ever saved a routing
+  // preference (including an explicit "off") keeps exactly what they chose.
+  if (!core.routingConfiguredOnce()) core.setRoutingSettings({ mode: "auto" });
   const channels = new ChannelController(core, {
     read: () => peer.call("native.weixin.credential.read", {}),
     write: async (credential) => { await peer.call("native.weixin.credential.write", { credential }); },
@@ -110,7 +113,7 @@ export function createService(input: Readable, output: Writable, databasePath: s
   };
   register("routing.get", async () => { await routing().restore(); return { ...core.routingSettings(), ...routing().status() }; });
   register("routing.key.save", async (params) => { await selectedRouter(params).save(object(params).apiKey); return snapshot(); });
-  register("routing.key.remove", async (params) => { const router = selectedRouter(params); core.setRoutingSettings({ mode: "off" }); await router.remove(); return snapshot(); });
+  register("routing.key.remove", async (params) => { const router = selectedRouter(params); await router.remove(); return snapshot(); });
   register("routing.test", async (params) => { await selectedRouter(params).test(); return snapshot(); });
   register("routing.configure", async (params) => {
     const patch = object(params);

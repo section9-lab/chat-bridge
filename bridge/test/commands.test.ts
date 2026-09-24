@@ -21,8 +21,7 @@ test("malformed known commands cannot fall through to the agent", () => {
   assert.equal(parseInput("/new extra").kind, "invalid");
 });
 
-test("menu alias and unknown agent slash commands are distinct", () => {
-  assert.deepEqual(parseInput("菜单"), { kind: "command", name: "help", argument: "" });
+test("an unrecognized slash command falls through as an ordinary message", () => {
   assert.deepEqual(parseInput("/review"), { kind: "message", text: "/review" });
 });
 

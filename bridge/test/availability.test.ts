@@ -28,6 +28,7 @@ function fixture() {
   };
   const service = createService(ab, ba, join(directory, "bridge.sqlite"), { codex: adapter, claude: adapter,
     agents: { cursor: adapter, grok: adapter, opencode: adapter, hermes: adapter } } as any);
+  service.core.setRoutingSettings({ mode: "off" }); // availability recovery is not about routing; keep messages going straight to the current target
   const snapshots: any[] = [];
   native.onEvent = (method, snapshot) => { if (method === "state.changed") snapshots.push(snapshot); };
   return { native, service, adapter, state, snapshots,

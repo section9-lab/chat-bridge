@@ -9,10 +9,13 @@ export type TextOption = { label: string; aliases?: string[] } & (
 export type TextMenu = { id: string; jobId?: string; origin: Origin; view: TextView; entries: TextOption[];
   header: string; version: number; expiresAt: number; active: boolean };
 
-export const menuLine = (text: string, limit = 80) => text.replaceAll(/[\s\u200b-\u200f\u202a-\u202e\u2066-\u2069]+/g, " ").trim().slice(0, limit);
+export const menuLine = (text: string, limit = 80) => {
+  const normalized = text.replaceAll(/[\s\u200b-\u200f\u202a-\u202e\u2066-\u2069]+/g, " ").trim();
+  return normalized.length > limit ? normalized.slice(0, Math.max(0, limit - 1)) + "\u2026" : normalized;
+};
 export function renderTextMenu(menu: TextMenu): string {
-  return menu.header + "\n\n" + menu.entries.map((entry, index) => String(index + 1).padStart(2, "0") + " " + entry.label).join("\n") +
-    "\n\n回复编号或选项文字即可。选项代码：" + menu.id + "-01。";
+  return menu.header + "\n\n" + menu.entries.map((entry, index) => String(index + 1).padStart(2, "0") + " " + entry.label).join("\n\n") +
+    "\n\n回复编号或选项文字即可。";
 }
 
 export function textOptionIndex(text: string, entries: TextOption[]): number | undefined {

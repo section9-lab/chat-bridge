@@ -35,13 +35,12 @@ export type Job = {
   routingDecision?: { provider: string; choice: string; confidence: number; probability: number; margin: number;
     intent?: { choice: string; confidence: number; probability: number } };
   routeMessage?: string; receiptRevision?: number; followsJobId?: string;
-  newProject?: { name: string; root?: string; projectId?: string };
   attachments?: InputAttachment[];
 };
 export type Receipt = { jobId?: string; message?: string };
 type Selection = Target & { sessionId: string | null; creationKey: string | null; version: number; engaged: boolean };
 type Creation = { key: string; target: Target; status: string; sessionId?: string };
-type Message = { id: string; sessionId: string; role: string; text: string; createdAt: string;
+type Message = { id: string; sessionId: string; role: string; text: string; createdAt: string; source?: Origin["kind"];
   replyTo?: { id: string; text: string }; attachments?: InputAttachment[] };
 type ChoiceMenu = { kind: "project" | "session"; entries: { id: string; name: string }[]; offset: number;
   version: number; bindingEpoch?: number; expiresAt: number };
@@ -60,7 +59,6 @@ export interface AgentAdapter {
   listProjects?(): Promise<NativeProject[]>;
   listSessions?(): Promise<NativeSession[]>;
   readHistory?(session: NativeSession): Promise<NativeMessage[]>;
-  createProject?(project: { root: string; name: string }): Promise<NativeProject>;
   bindProject?(session: NativeSession, project: { root: string; name: string }, title: string,
     approval?: TurnHooks["approval"]): Promise<{ project: NativeProject; session: NativeSession; notice?: string }>;
   createSession(target: Target, creationKey: string): Promise<NativeSession>;
@@ -232,6 +230,11 @@ export class BridgeCore {
     const settings = { ...defaultRoutingSettings, ...this.get<Partial<RoutingSettings>>("routing") };
     return Object.hasOwn(routingProviders, settings.provider) ? settings : { ...settings, provider: "vercel", mode: "off" };
   }
+  // True once any routing preference has ever been persisted — lets the service tell a genuinely
+  // fresh install apart from one that explicitly chose "off", without changing the bare data-layer default.
+  routingConfiguredOnce(): boolean {
+    return this.get<Partial<RoutingSettings>>("routing") !== undefined;
+  }
   setRoutingSettings(patch: Partial<RoutingSettings>): void {
     if (Object.keys(patch).some((key) => !["provider", "mode", "planning", "implementation", "research"].includes(key))) {
       throw new BridgeError("INVALID_INPUT", "存在不支持的路由配置。");
@@ -241,8 +244,12 @@ export class BridgeCore {
       .some((agent) => agent !== "default" && !agentIDs.includes(agent as typeof agentIDs[number]))) {
       throw new BridgeError("INVALID_INPUT", "请选择有效的路由方式和 Agent。");
     }
-    if (settings.provider !== this.routingSettings().provider) settings.mode = "off";
     this.put("routing", settings); this.changed();
+  }
+  // Whether ordinary messages enter the Jev routing pipeline at all ("off" sends everything
+  // straight to the current target with no menu, no Jev call — an explicit user opt-out).
+  private smartRoutingEnabled(): boolean {
+    return this.routingSettings().mode !== "off";
   }
 
   async probeAgent(agent: string): Promise<AgentProbe> {
@@ -431,8 +438,7 @@ export class BridgeCore {
     return { id, text: text.replace(/\s+/gu, " ").trim().slice(0, 240).replace(/[\uD800-\uDBFF]$/, "") };
   }
   private prompt(job: Job): string {
-    const text = job.newProject ? "本次请求的项目目录已由 Chat Bridge 创建并登记：" + job.newProject.root +
-      "。当前会话已绑定此项目。请在该根目录完成任务，不要为同一项目再创建一层项目目录。\n\n用户原始提示词：\n" + job.text : job.text;
+    const text = job.text;
     return job.attachments?.length ? text + "\n\n用户附加的文件（本机副本，请按任务需要读取）：\n" +
       job.attachments.map(file => JSON.stringify({ name: file.name, path: file.path })).join("\n") : text;
   }
@@ -547,7 +553,7 @@ export class BridgeCore {
           if (outstanding.length >= 100) {
             result = { message: "未接受：待执行任务已达到 100 个，请先处理已有任务。" };
           } else {
-            const routing = this.routingSettings().mode !== "off" && !text.startsWith("//");
+            const routing = this.smartRoutingEnabled() && !text.startsWith("//");
             const target = routing ? { ...this.selection() } : this.reserve(this.selection());
             if (!routing) this.put("selection", { ...target, engaged: true });
             const id = "J" + randomUUID().replaceAll("-", "").slice(0, 12);
@@ -586,7 +592,6 @@ export class BridgeCore {
     const activeTasks = tasks.filter(job => !["completed", "cancelled", "interrupted", "failed"].includes(job.status)).slice(-12);
     const recentTasks = tasks.filter(job => ["completed", "interrupted", "failed"].includes(job.status) && job.sessionId).slice(-3);
     return { text, current, settings: this.routingSettings(), defaultAgent: this.get<Preferences>("preferences")!.defaultAgent,
-      projectCreationAgents: agentIDs.filter(agent => Boolean(this.adapters[agent]?.createProject)),
       projects: this.list<Project>("project").filter((project) => this.catalogMembers.get(project.agent)?.projects.has(project.id)),
       sessions: this.list<Session>("session").filter((session) => session.id === current.sessionId || this.catalogMembers.get(session.agent)?.sessions.has(session.nativeId)),
       probes: { ...this.probes }, active: Object.fromEntries(agentIDs.map((agent) => [agent,
@@ -614,10 +619,12 @@ export class BridgeCore {
   }
   private routeLabel(action: RouteAction): string {
     if (!action.target) return menuLine(action.label, 160);
-    if (action.createProject) return "创建项目并发送：" + this.displayAgent(action.target.agent) + " > 新项目 > 项目启动";
     const verb = action.kind === "select" ? "只切换到：" : action.kind === "control" ? "任务操作：" :
       action.id === "continue" ? "继续：" : action.target.sessionId ? "恢复会话并发送：" : "新建会话并发送：";
-    return verb + this.targetName(this.resolvedTarget(action.target));
+    const label = verb + this.targetName(this.resolvedTarget(action.target));
+    // "select" only moves the target; every other kind sends the original message there. The two
+    // read alike once truncated to the same target name, so spell out the behavioral difference.
+    return action.kind === "select" ? label + "（这条消息不会发送）" : label;
   }
   private textMenus(origin: Origin): TextMenu[] {
     return this.list<TextMenu>("text-menu").filter(menu => menu.active && this.menuKey(menu.origin) === this.menuKey(origin));
@@ -644,7 +651,7 @@ export class BridgeCore {
     }
     const entries: TextOption[] = [], mode = view.mode ?? "send", scope = view.scope ?? { agent: this.selection().agent };
     const actionOption = (action: RouteAction, label = this.routeLabel(action), aliases?: string[]): TextOption => ({ kind: "action", action, label,
-      aliases: aliases ?? (action.kind === "send" ? action.createProject ? ["新建项目", "创建项目"] : action.id === "continue" ? ["继续", "继续原会话"] :
+      aliases: aliases ?? (action.kind === "send" ? action.id === "continue" ? ["继续", "继续原会话"] :
         action.target?.sessionId ? ["恢复会话"] : ["新建", "新建会话", "另开一个"] : []) });
     const next = (label: string, target: TextView, aliases?: string[]): TextOption => ({ kind: "view", label, view: target, aliases });
     const projects = this.list<Project>("project").filter(project => project.agent === scope.agent &&
@@ -692,10 +699,6 @@ export class BridgeCore {
       if (offset + 6 < projects.length) entries.push(next("下一页", { ...view, offset: offset + 6 }));
       if (offset) entries.push(next("上一页", { ...view, offset: Math.max(0, offset - 6) }));
       entries.push(next("无项目 · 直接对话", { stage: "sessions", mode, scope: { agent: scope.agent, projectId: null } }, ["无项目", "直接对话"]));
-      if (mode === "send" && pending && this.adapters[scope.agent]?.createProject) entries.push(actionOption({
-        id: "new_project_" + scope.agent, kind: "send", createProject: true,
-        target: { agent: scope.agent, mode: "code", projectId: null, sessionId: null, creationKey: null }, label: "新建项目并发送",
-      }, "新建项目并发送：" + menuLine(projectName(job!.text)), ["新建项目并发送"]));
       entries.push(next("返回上一步", { stage: "agents", mode }, ["返回", "上一步"]));
     } else {
       const project = scope.projectId === undefined ? "全部会话" : scope.projectId === null ? "无项目" : projects.find(project => project.id === scope.projectId)?.name ?? "项目已不可用";
@@ -768,7 +771,7 @@ export class BridgeCore {
     if (index === undefined && menu.entries.some(entry => [entry.label, ...(entry.aliases ?? [])].includes(text))) {
       return { message: "这个文字对应多个选项，请回复具体编号。\n\n" + renderTextMenu(menu) };
     }
-    if (index === undefined && !code && menu.view.stage === "route" && this.routingSettings().mode !== "off") return;
+    if (index === undefined && !code && menu.view.stage === "route" && this.smartRoutingEnabled()) return;
     if (index === undefined && !code && job?.status === "completed" && menu.view.stage !== "correction") {
       this.record("text-menu", menu.id, { ...menu, active: false }); return;
     }
@@ -858,7 +861,7 @@ export class BridgeCore {
     };
     try {
       if (job.routing.intent !== (this.get<number>("intent") ?? 0)) throw new BridgeError("STALE_TARGET", "等待期间当前目标已改变，请重新选择本次任务的目标。");
-      if (!this.routeDecision || this.routingSettings().mode === "off") throw new BridgeError("ROUTER_UNAVAILABLE", "智能路由已关闭，请为已接收的任务选择目标。");
+      if (!this.routeDecision || !this.smartRoutingEnabled()) throw new BridgeError("ROUTER_UNAVAILABLE", "智能路由已关闭，请为已接收的任务选择目标。");
       if (Date.now() - Date.parse(job.queuedAt ?? job.createdAt) > 24 * 60 * 60_000) throw new BridgeError("STALE_TARGET", "任务已等待超过 24 小时，请确认目标后继续。");
       if (Date.now() - this.routeCatalogAt > 30_000) {
         await this.probeAgents();
@@ -897,13 +900,47 @@ export class BridgeCore {
         probability: answer.probabilities[answer.choice] ?? 0, margin: (scores[0] ?? 0) - (scores[1] ?? 0),
         ...(answer.intent ? { intent: { choice: answer.intent.choice, confidence: answer.intent.confidence,
           probability: answer.intent.probabilities[answer.intent.choice] ?? 0 } } : {}) };
-      if (!chosen || chosen.kind === "clarify" || chosen.kind === "lookup" || context.settings.mode === "confirm" ||
-          !(chosen.kind === "list" ? isConfidentLookup(answer)
-            : isConfidentRoute(answer, Boolean(context.current.sessionId)))) {
+      const continueAction = actions.find((action) => action.id === "continue");
+      const sameDestination = (a?: Target, b?: Target) => Boolean(a && b) && a!.agent === b!.agent && a!.mode === b!.mode &&
+        (a!.projectId ?? null) === (b!.projectId ?? null) && (a!.sessionId ?? null) === (b!.sessionId ?? null);
+      const confirmMode = context.settings.mode === "confirm";
+      const navigating = answer.intent?.choice === "navigate";
+      const leading = ranked[0];
+      let resolved: RouteAction | undefined;
+      // The top two candidates agreeing on one place is not a destination question: only whether
+      // to send. Navigation switches there without sending; anything else continues there.
+      if (!confirmMode && canContinue && continueAction && ranked.length > 1 &&
+          ranked.slice(0, 2).every((action) => action.id === "continue" || (action.kind === "select" && sameDestination(action.target, continueAction.target)))) {
+        resolved = navigating ? ranked.slice(0, 2).find((action) => action.kind === "select") ?? continueAction : continueAction;
+      }
+      // A lookup clears a low bar because a wrong list is cheap — but not when the task intent says
+      // this is work: answering it with a list leaves the actual question unanswered.
+      const taskIntent = ["current", "new", "resume"].includes(answer.intent?.choice ?? "");
+      if (!resolved && !confirmMode && chosen && chosen.kind !== "clarify" && chosen.kind !== "lookup" &&
+          (chosen.kind === "list" ? isConfidentLookup(answer) && !taskIntent : isConfidentRoute(answer, Boolean(context.current.sessionId)))) {
+        resolved = chosen;
+      }
+      // A task is carried out even without a confident destination: stay in the current
+      // conversation when that is the leading guess, otherwise start a fresh projectless one on
+      // the leading agent. Navigation, project creation, confirm mode and an explicit clarify
+      // (e.g. a named agent that is unavailable, or a cross-agent handoff) still ask.
+      const clarifying = chosen?.kind === "clarify" || answer.intent?.choice === "clarify";
+      if (!resolved && !confirmMode && !navigating && !clarifying && leading?.kind === "send") {
+        resolved = leading.id === "continue" && answer.intent?.choice !== "new" ? leading :
+          actions.find((action) => action.id === "new_" + leading.target!.agent + "_none") ?? leading;
+      }
+      // The flat choice can wobble (e.g. toward a status lookup) while the task intent says this is
+      // work: current work continues the conversation, a new purpose gets a fresh projectless one.
+      if (!resolved && !confirmMode && !navigating && !clarifying) {
+        if (answer.intent?.choice === "current" && canContinue && continueAction) resolved = continueAction;
+        else if (answer.intent?.choice === "new") resolved = actions.find((action) => action.id === "new_" + context.current.agent + "_none");
+      }
+      if (!resolved) {
         const options = ranked.length ? ranked : fallback();
         this.waitForRoute(job, chosen?.kind === "clarify" ? "这条消息希望交给哪个 Agent、项目或会话处理？" : this.routingQuestion(options), options);
         return;
       }
+      chosen = resolved;
       if (job.attachments?.length && !["send", "answer"].includes(chosen.kind)) {
         throw new BridgeError("INVALID_ROUTE", "这条消息带有附件，请选择接收文件的目标。原消息和附件已保留。");
       }
@@ -911,8 +948,16 @@ export class BridgeCore {
       this.changed();
     } catch (error) {
       if (!valid()) return;
-      this.waitForRoute(job, error instanceof BridgeError ? error.message.replace(/^[A-Z_]+: /, "") : "路由暂不可用，任务未发送。",
-        fallback());
+      const options = fallback();
+      // Jev is unavailable (not configured, network, quota, rejected key, …): an already-engaged
+      // target was chosen accurately before, so continuing it needs no re-confirmation. Only a
+      // message with no established destination yet is genuinely ambiguous without Jev's judgment.
+      if (options.length === 1 && options[0]!.id === "continue") {
+        this.db.transaction(() => this.applyRoute(job, options[0]!))();
+        this.changed();
+        return;
+      }
+      this.waitForRoute(job, error instanceof BridgeError ? error.message.replace(/^[A-Z_]+: /, "") : "路由暂不可用，任务未发送。", options);
     }
   }
   private applyRoute(job: Job, action: RouteAction): void {
@@ -986,9 +1031,7 @@ export class BridgeCore {
       }
       if (action.kind === "select" && visible && !switching && !current.engaged) this.select(target);
       if (action.kind === "send") {
-        if (action.createProject) job.newProject = { name: projectName(job.text) };
-        else delete job.newProject;
-        job.target = this.reserve({ ...target, version: visible ? this.selection().version : target.version }, action.createProject);
+        job.target = this.reserve({ ...target, version: visible ? this.selection().version : target.version });
         if (visible) this.put("selection", { ...job.target, sessionId: job.target.sessionId ?? null, creationKey: job.target.creationKey ?? null, engaged: true });
         for (const pending of this.list<Job>("job")) {
           if (pending.id !== job.id && pending.status === "routing" && pending.routing?.intent === (this.get<number>("intent") ?? 0)) {
@@ -997,8 +1040,14 @@ export class BridgeCore {
         }
       }
     }
+    // A status reply describes the other tasks; this message is answered by it, not still pending.
+    if (action.kind === "list") this.record("job", job.id, { ...job, status: "completed" });
     const message = action.kind === "list" ? action.command === "status" ? this.command("status", "", job.origin) :
-      this.openTextMenu({ ...job, status: "completed" }, job.origin, { stage: action.command === "agent" ? "agents" : action.command === "project" ? "projects" : "sessions",
+      action.command === "help" ? this.command("help", "", job.origin) :
+      // Agents are a short fixed list; the informative form (with the reason each one is
+      // unavailable) beats a bare picker here, matching what /agent alone has always shown.
+      action.command === "agent" ? this.command("agent", "", job.origin) :
+      this.openTextMenu({ ...job, status: "completed" }, job.origin, { stage: action.command === "project" ? "projects" : "sessions",
         mode: "select", scope: action.scope ?? { agent: this.selection().agent } }, "", true) :
       action.kind === "select" ? this.targetName(action.target!) + (action.target?.sessionId ? "\n已切换✅" : "\n下一条消息将在这里开始。") : action.label;
     delete job.routing; delete job.error;
@@ -1328,8 +1377,7 @@ export class BridgeCore {
       if (job.status !== "accepted") return;
       const prior = this.agentTails.get(job.target.agent);
       if (prior && job.origin.kind !== "desktop") {
-        job.routeMessage = (job.newProject ? this.displayAgent(job.target.agent) + " > " + menuLine(job.newProject.name) + " > 项目启动" :
-          this.targetName(this.resolvedTarget(job.target))) + "\n已收到✅\n等待前一个任务完成。";
+        job.routeMessage = this.targetName(this.resolvedTarget(job.target)) + "\n已收到✅\n等待前一个任务完成。";
         this.record("job", job.id, job);
         this.enqueueReply(job.id + ":receipt" + (job.receiptRevision ? ":" + job.receiptRevision : ""), job.origin, job.routeMessage, "receipt", job.id); this.changed();
       }
@@ -1449,9 +1497,8 @@ export class BridgeCore {
       job.turnId = this.find<Job>("job", job.id)?.turnId;
       this.expireApprovals(job.id);
       const code = error instanceof BridgeError ? error.code : (error instanceof Error && error.message === "TARGET_MISSING" ? "TARGET_MISSING" : "UNKNOWN");
-      job.status = code === "PROJECT_NOT_READY" ? "awaiting_confirmation" : dispatched || code === "SEND_UNCERTAIN" || code === "UNKNOWN" ? "uncertain" : code === "AGENT_UNAVAILABLE" ? "waiting_agent" : "failed";
-      job.error = code === "PROJECT_NOT_READY" ? "项目登记尚未完成，提示词尚未发送。目录和原始请求已保留，可稍后回复“继续刚才未发送的任务”。" :
-        code === "AGENT_UNAVAILABLE" && error instanceof BridgeError ? error.message.replace(/^AGENT_UNAVAILABLE: /, "") + " 任务未发送。" : code === "TARGET_MISSING" ? "原会话不存在，未创建替代会话。" : "操作状态待确认，未自动重试。";
+      job.status = dispatched || code === "SEND_UNCERTAIN" || code === "UNKNOWN" ? "uncertain" : code === "AGENT_UNAVAILABLE" ? "waiting_agent" : "failed";
+      job.error = code === "AGENT_UNAVAILABLE" && error instanceof BridgeError ? error.message.replace(/^AGENT_UNAVAILABLE: /, "") + " 任务未发送。" : code === "TARGET_MISSING" ? (error instanceof BridgeError ? error.message.replace(/^TARGET_MISSING: /, "") : "原会话不存在。") + " 任务未发送。" : "操作状态待确认，未自动重试。";
       this.saveWaitingJob(job);
     } finally {
       acceptingText = false; flush(false); this.flushText.delete(jobId);
@@ -1459,40 +1506,6 @@ export class BridgeCore {
       if (!this.closed && this.adapters[job.target.agent]) void this.probeAgent(job.target.agent);
     }
     this.changed();
-  }
-  private async prepareProject(job: Job): Promise<void> {
-    const request = job.newProject!;
-    if (request.projectId) return;
-    const adapter = this.adapters[job.target.agent];
-    try {
-      if (!adapter?.createProject) throw new Error("Project creation unavailable");
-      if (!request.root) {
-        Object.assign(request, createProjectDirectory(join(dirname(this.databasePath), "Workspaces", "Projects"), request.name));
-        this.record("job", job.id, job);
-      }
-      const project = await adapter.createProject({ root: request.root!, name: request.name });
-      if (this.closed || this.find<Job>("job", job.id)?.status !== "preparing") return;
-      if (!project.id || !project.roots.includes(request.root!)) throw new Error("Project registration mismatch");
-      const key = job.target.creationKey;
-      this.db.transaction(() => {
-        request.projectId = project.id;
-        job.target = { ...job.target, projectId: project.id, sessionTitle: "项目启动" };
-        this.record("project", job.target.agent + ":" + project.id, { ...project, agent: job.target.agent,
-          shortId: "P" + randomUUID().replaceAll("-", "").slice(0, 12), managed: true });
-        this.catalogMembers.get(job.target.agent)?.projects.add(project.id);
-        const creation = this.find<Creation>("creation", key!);
-        if (creation) this.record("creation", key!, { ...creation, target: job.target });
-        if (this.selection().creationKey === key) this.select(job.target);
-        const active = this.get<Target>(this.activeKey(job.target));
-        if (active?.creationKey === key) this.put(this.activeKey(job.target), job.target);
-        for (const pending of this.list<Job>("job")) {
-          if (pending.id !== job.id && pending.target.creationKey === key && ["accepted", "routing", "awaiting_route"].includes(pending.status)) {
-            this.record("job", pending.id, { ...pending, target: { ...pending.target, projectId: project.id, sessionTitle: "项目启动" } });
-          }
-        }
-        this.record("job", job.id, job);
-      })();
-    } catch { throw new BridgeError("PROJECT_NOT_READY", "项目登记尚未完成。"); }
   }
   private async collectOutputs(job: Job, session: Session, text: string): Promise<Session> {
     let current = session;
@@ -1591,6 +1604,11 @@ export class BridgeCore {
     }
   }
   outbox(): OutboxEntry[] { return this.list<OutboxEntry>("outbox"); }
+  // Exposed for callers (tests, the desktop app) that need to address a specific pending menu
+  // directly; the rendered text no longer prints this code, since it is meaningless to a reader.
+  activeMenuId(origin: Origin): string | undefined {
+    return this.textMenus(origin).at(-1)?.id;
+  }
   enqueueAttachment(id: string, origin: Origin, attachment: OutputAttachment, jobId: string): void {
     if (this.find("outbox", id)) return;
     this.record("outbox", id, { id, jobId, origin, attachment, text: "附件：" + attachment.name, kind: "attachment", batchId: id, status: "pending" });
@@ -1599,9 +1617,12 @@ export class BridgeCore {
     this.db.transaction(() => {
       this.record("job", job.id, job);
       if (job.origin.kind !== "desktop") this.enqueueReply(job.id + ":status:" + randomUUID(), job.origin,
-        job.newProject ? agentNames[job.target.agent] + " · " + job.newProject.name + " · 项目启动｜" + (job.error ?? "操作已停止。") :
-          taskNotice(job.id, job.error ?? "操作已停止。", ["waiting_agent", "awaiting_confirmation"].includes(job.status)), "status", job.id);
+        taskNotice(job.id, job.error ?? "操作已停止。", ["waiting_agent", "awaiting_confirmation"].includes(job.status)), "status", job.id);
     })();
+  }
+  /** An agent's reply as delivered to a phone channel: the answering agent comes first. */
+  private signed(agent: string, text: string): string {
+    return (agentEmoji[agent] ? agentEmoji[agent] + " " : "") + this.displayAgent(agent) + "\n" + text;
   }
   enqueueReply(id: string, origin: Origin, text: string, kind: string, jobId?: string): void {
     if (origin.kind !== "desktop") origin = { ...origin,

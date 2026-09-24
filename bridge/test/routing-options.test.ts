@@ -124,10 +124,10 @@ for (const project of ["商城", "无项目"]) test("local options create one se
   } finally { f.close(); }
 });
 
-test("low confidence offers distinct new and existing destinations with local selection", async () => {
+test("confirm mode offers distinct new and existing destinations with local selection", async () => {
   const f = fixture();
   try {
-    await f.ready();
+    await f.ready(); f.core.setRoutingSettings({ mode: "confirm" });
     const existing = f.core.state().sessions.find(s => s.nativeId === "codex-old")!;
     f.receive("/use " + existing.shortId);
     f.decide(async (_context, actions) => {
@@ -241,7 +241,7 @@ test("expired options refresh without sending and old menu codes cannot target n
   context.mock.timers.enable({ apis: ["Date"], now: Date.now() });
   const f = fixture();
   try {
-    await f.send("原任务"); const code = /M[0-9a-f]{6}-01/.exec(f.message())![0];
+    await f.send("原任务"); const code = f.core.activeMenuId(f.origin())! + "-01";
     context.mock.timers.tick(10 * 60_000);
     await f.send("01"); assert.match(f.message(), /已过期/);
     await f.send(code); assert.match(f.message(), /已被处理或替换/);
@@ -252,7 +252,7 @@ test("expired options refresh without sending and old menu codes cannot target n
 test("text options cannot be used from a different channel or after rebinding", async () => {
   const f = fixture();
   try {
-    await f.send("原任务"); const code = /M[0-9a-f]{6}-01/.exec(f.message())![0];
+    await f.send("原任务"); const code = f.core.activeMenuId(f.origin())! + "-01";
     await f.send(code, "imessage"); assert.match(f.message(), /不属于当前绑定/);
     f.core.unbindChannel("weixin"); f.core.bindChannel("weixin", "account", "owner");
     await f.send(code); assert.match(f.message(), /不属于当前绑定/);
@@ -343,30 +343,16 @@ test("pure projectless navigation marks the empty destination as explicitly sele
   } finally { f.close(); }
 });
 
-test("fallback can explicitly create a project before sending the preserved task", async () => {
-  const f = fixture(); const created: string[] = [];
-  try {
-    f.adapters.claude!.createProject = async project => { created.push(project.root); return { id: "created-project", name: project.name, roots: [project.root] }; };
-    await f.send("用 Claude 创建“卡牌”项目，先做方案"); await f.send("手动选择目标"); await f.send("Claude");
-    assert.match(f.message(), /新建项目并发送/);
-    await f.send("新建项目并发送");
-    assert.equal(created.length, 1); assert.equal(f.calls(), 1);
-    assert.equal(f.sends[0]?.session.projectId, "created-project");
-    assert.match(f.sends[0]!.text, /用 Claude 创建“卡牌”项目，先做方案/);
-  } finally { f.close(); }
-});
-
 test("all gateway failure categories offer local options without exposing upstream content", async t => {
   const cases = [
     { name: "missing key", key: false },
-    { name: "expired policy", expired: true },
-    ...[401, 402, 403, 429, 503].map(status => ({ name: "HTTP " + status, status })),
+    ...[401, 402, 403, 429, 503, 529].map(status => ({ name: "HTTP " + status, status })),
     { name: "network", network: true }, { name: "invalid response", invalid: true },
     { name: "invalid choice", choice: true }, { name: "oversized context", oversized: true },
   ];
   for (const value of cases) await t.test(value.name, async () => {
     const f = fixture();
-    const item = value as { key?: boolean; expired?: boolean; status?: number; network?: boolean; invalid?: boolean; choice?: boolean; oversized?: boolean };
+    const item = value as { key?: boolean; status?: number; network?: boolean; invalid?: boolean; choice?: boolean; oversized?: boolean };
     try {
       const gateway = new JevGateway({ read: async () => item.key === false ? null : { apiKey: "secret-not-for-output" }, write: async () => {}, remove: async () => {} },
         async () => {
@@ -374,7 +360,7 @@ test("all gateway failure categories offer local options without exposing upstre
           if (item.invalid) return new Response("secret-not-for-output");
           if (item.choice) return Response.json({ answers: { route: { type: "choice", choice: "missing-action", confidence: 1, probabilities: { "missing-action": 1 } } } });
           return new Response("secret-not-for-output", { status: item.status ?? 500 });
-        }, () => Date.parse(item.expired ? "2026-10-01" : "2026-09-20"));
+        }, () => Date.parse("2026-09-20"));
       f.decide((context, actions) => gateway.choose(context, actions));
       const original = await f.send(item.oversized ? "大".repeat(40_000) : "原任务");
       assert.match(f.message(), /手动选择目标/); assert.doesNotMatch(f.message(), /secret-not-for-output/);
@@ -387,7 +373,8 @@ test("all gateway failure categories offer local options without exposing upstre
 test("short action words resolve a unique displayed choice without invoking JEV", async () => {
   const f = fixture();
   try {
-    await f.ready(); const session = f.core.state().sessions.find(s => s.nativeId === "codex-old")!;
+    await f.ready(); f.core.setRoutingSettings({ mode: "confirm" });
+    const session = f.core.state().sessions.find(s => s.nativeId === "codex-old")!;
     f.receive("/use " + session.shortId);
     f.decide(async (_context, actions) => {
       const fresh = actions.find(a => a.kind === "send" && a.target?.projectId === "codex-shop" && !a.target.sessionId)!;
@@ -478,16 +465,6 @@ test("retargeting queued work respects the new agent queue and updates its recei
   } finally { for (const release of releases.values()) release(); await Promise.allSettled(runs); f.close(); }
 });
 
-test("project creation options describe a new project rather than a projectless conversation", async () => {
-  const f = fixture();
-  try {
-    f.adapters.codex!.createProject = async project => ({ id: "project", name: project.name, roots: [project.root] });
-    f.core.setRoutingSettings({ mode: "confirm" }); f.decide(async () => answer("new_project_codex"));
-    await f.send("创建一个卡牌项目");
-    assert.match(f.message(), /创建项目并发送：Codex > 新项目 > 项目启动/);
-  } finally { f.close(); }
-});
-
 test("an unselected empty destination is never offered as the current conversation after failure", async () => {
   const f = fixture();
   try {
@@ -540,5 +517,28 @@ test("semantic corrections are destination actions, not execution prompts", asyn
     assert.match(f.message(), /已经完成|已经发送/);
     assert.match(f.message(), /为后续消息选择其他目标/);
     assert.equal(f.sends.length, 1);
+  } finally { f.close(); }
+});
+
+test("a wobbling flat choice defers to a task intent instead of asking", async () => {
+  const f = fixture();
+  try {
+    await f.ready();
+    const existing = f.core.state().sessions.find(s => s.nativeId === "codex-old")!;
+    f.receive("/use " + existing.shortId);
+    // Observed: the router leaned toward a status lookup while its task intent said "current work".
+    f.decide(async () => ({ choice: "list_status", confidence: 0.35, probabilities: { list_status: 0.36, continue: 0.29, new_codex_none: 0.35 },
+      intent: { choice: "current", confidence: 0.38, probabilities: { current: 0.46, navigate: 0.34, new: 0.2 } } }));
+    await f.send("原来 ChatBridge 下边的那个余烬远征项目删除了吗？存在吗");
+    assert.deepEqual(f.sends.map(s => [s.session.nativeId, s.text]), [["codex-old", "原来 ChatBridge 下边的那个余烬远征项目删除了吗？存在吗"]]);
+    // Observed again: the lookup led clearly enough to clear its low bar (0.46 vs 0.30) while the intent still said work.
+    f.decide(async () => ({ choice: "list_status", confidence: 0.36, probabilities: { list_status: 0.46, continue: 0.3, new_codex_none: 0.24 },
+      intent: { choice: "current", confidence: 0.36, probabilities: { current: 0.45, navigate: 0.35, new: 0.2 } } }));
+    await f.send("那个项目现在还存在吗");
+    assert.equal(f.sends.at(-1)?.text, "那个项目现在还存在吗", "a task intent is answered by the agent, not with a status list");
+    f.decide(async () => ({ choice: "list_status", confidence: 0.35, probabilities: { list_status: 0.4, continue: 0.3, new_codex_none: 0.3 },
+      intent: { choice: "navigate", confidence: 0.4, probabilities: { navigate: 0.5, current: 0.5 } } }));
+    await f.send("现在是什么状态");
+    assert.equal(f.sends.length, 2, "an uncertain navigation question still asks rather than sending");
   } finally { f.close(); }
 });

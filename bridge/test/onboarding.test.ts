@@ -40,7 +40,6 @@ test("each confirmed channel gets one usable command guide without creating an A
     const help = f.core.receive(origin, "/help").message!;
     assert.match(help, /命令指南/);
     assert.ok(f.core.outbox()[0]!.text.endsWith(help));
-    assert.equal(f.core.receive({ ...origin, eventId: "menu" }, "菜单").message, help);
     assert.deepEqual(f.core.state().selection, selection);
     assert.equal(f.core.state().jobs.length, 0);
     assert.equal(f.core.state().sessions.length, 0);

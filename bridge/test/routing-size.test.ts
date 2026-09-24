@@ -9,7 +9,6 @@ function catalog(): RoutingContext {
     text: "用 CodeX 创建一个无项目会话，记住测试口令是上海 0921，只回复已记住，不要操作文件。",
     current, defaultAgent: "codex", settings: { ...defaultRoutingSettings, provider: "openrouter", mode: "auto" },
     active: { codex: current }, probes: Object.fromEntries(agentIDs.map(agent => [agent, { ready: true, reason: "Fixture" }])),
-    projectCreationAgents: ["codex", "claude"],
     projects: Array.from({ length: 47 }, (_, index) => ({ id: "project-" + index, shortId: "P" + index,
       agent: agentIDs[index % agentIDs.length]!, name: "项目" + index + "-" + "场景".repeat(40), roots: [] })),
     sessions: Array.from({ length: 217 }, (_, index) => ({ id: "session-" + index, nativeId: "native-" + index,

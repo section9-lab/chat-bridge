@@ -19,6 +19,7 @@ function fixture() {
     "native.agent.send": () => { nativeMutations++; return {}; },
   });
   const service = createService(ab, ba, join(directory, "bridge.sqlite"));
+  service.core.setRoutingSettings({ mode: "off" }); // these tests are not about routing; keep messages going straight to the current target
   return { native, service, mutations: () => nativeMutations,
     close() { native.close(); service.close(); rmSync(directory, { recursive: true, force: true }); } };
 }
@@ -43,6 +44,7 @@ test("IPC publishes growing Markdown beyond 1000 characters and bounds large his
     sendTurn: async (_session, _text, _id, events) => { hooks = events; hooks.started("turn"); return new Promise((resolve) => { done = resolve; }); }
   };
   const service = createService(ab, ba, join(directory, "bridge.sqlite"), { codex: adapter });
+  service.core.setRoutingSettings({ mode: "off" }); // streaming/truncation is not about routing; keep messages going straight to the current target
   const snapshots: any[] = []; native.onEvent = (method, state) => { if (method === "state.changed") snapshots.push(state); };
   try {
     const job = service.core.receive({ kind: "desktop", accountId: "local", peerId: "local", eventId: "task" }, "task");
@@ -139,6 +141,7 @@ test("a long-polling WeChat request cannot stall iMessage task scheduling", asyn
         chatKind: "dm", chatId, kind: "text", isFromMe: false, attachments: [] } as unknown as Message],
       send: async () => {}, close: async () => {}, }),
   });
+  service.core.setRoutingSettings({ mode: "off" }); // channel scheduling is not about routing; keep messages going straight to the current target
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     service.core.bindChannel("weixin", "bot", "owner");

@@ -72,18 +72,18 @@ test("Vercel settings start disabled and save only a validated key in the native
   const f = fixture();
   try {
     const initial = await f.native.call<any>("routing.get");
-    assert.equal(initial.mode, "off"); assert.equal(initial.configured, false);
+    assert.equal(initial.mode, "auto"); assert.equal(initial.configured, false);
     await f.native.call("routing.key.save", { apiKey: "  fixture-secret-do-not-log  " });
     assert.deepEqual(f.secret(), { apiKey: "fixture-secret-do-not-log" });
     const state = await f.native.call<any>("state.get");
-    assert.equal(state.routing.configured, true); assert.equal(state.routing.mode, "off");
+    assert.equal(state.routing.configured, true); assert.equal(state.routing.mode, "auto");
     assert.equal(JSON.stringify(state).includes("fixture-secret"), false);
     for (const suffix of ["", "-wal", "-shm"]) {
       if (existsSync(f.database + suffix)) assert.equal(readFileSync(f.database + suffix).includes(Buffer.from("fixture-secret")), false);
     }
     await f.native.call("routing.key.remove");
     assert.equal(f.secret(), null);
-    assert.equal((await f.native.call<any>("routing.get")).mode, "off");
+    assert.equal((await f.native.call<any>("routing.get")).mode, "auto");
   } finally { f.close(); }
 });
 
@@ -176,7 +176,7 @@ test("channel prompts receive the resolved destination before the AI answer, wit
       };
       await f.service.core.run(receipt.jobId!);
       assert.deepEqual(replies().map(({ kind, text }) => ({ kind, text })), [
-        { kind: "receipt", text: "Codex > 无项目 > New\n已收到✅" }, { kind: "final", text: "完成" },
+        { kind: "receipt", text: "Codex > 无项目 > New\n已收到✅" }, { kind: "final", text: "🤖 Codex\n完成" },
       ]);
       assert.ok(replies().every((entry) => entry.origin.kind === kind));
       assert.deepEqual(f.service.core.receive(origin, "重复事件"), receipt);
@@ -196,7 +196,7 @@ test("a continuation receipt uses the actual project and session names", async (
     const receipt = f.service.core.receive({ kind: "weixin", accountId: "bot", peerId: "owner", eventId: "follow-up" }, "继续刚才的问题");
     await f.service.core.run(receipt.jobId!);
     assert.deepEqual(f.service.core.outbox().filter((entry) => entry.jobId === receipt.jobId).map((entry) => entry.text),
-      ["Codex > 商城 > 微信断连\n已收到✅", "完成"]);
+      ["Codex > 商城 > 微信断连\n已收到✅", "🤖 Codex\n完成"]);
     assert.equal(f.sends[0]?.nativeId, session.nativeId);
   } finally { f.close(); }
 });
@@ -205,7 +205,7 @@ test("an ambiguous route asks in natural language and preserves the prompt when 
   const f = fixture();
   try {
     await f.enable(); f.service.core.bindChannel("weixin", "bot", "owner");
-    f.decide(() => ({ choice: "new_claude_none", confidence: 0.4, probabilities: { new_claude_none: 0.6, continue: 0.4 } }));
+    f.decide(() => ({ choice: "clarify", confidence: 0.9, probabilities: { clarify: 0.6, new_claude_none: 0.4 } }));
     const origin: Origin = { kind: "weixin", accountId: "bot", peerId: "owner", eventId: "ambiguous" };
     const receipt = f.service.core.receive(origin, "帮我规划下一步");
     await f.service.core.run(receipt.jobId!);
@@ -223,7 +223,7 @@ test("an ambiguous route asks in natural language and preserves the prompt when 
     assert.equal(replies().length, 1, "Do not insert another acknowledgement before the resolved destination");
     await f.service.core.run(clarified.jobId!);
     assert.equal(f.sends[0]?.text, "帮我规划下一步\n\n路由询问：" + question + "\n补充目标信息：用 Claude 开新会话做规划");
-    assert.deepEqual(replies().slice(1).map((entry) => entry.text), ["Claude > 无项目 > New\n已收到✅", "完成"]);
+    assert.deepEqual(replies().slice(1).map((entry) => entry.text), ["Claude > 无项目 > New\n已收到✅", "✳️ Claude\n完成"]);
   } finally { f.close(); }
 });
 
@@ -264,23 +264,49 @@ test("escaped slash content bypasses semantic routing and stays in the selected 
   } finally { f.close(); }
 });
 
-test("a low-confidence decision keeps the original prompt until an explicit choice", async () => {
+test("a low-confidence task still runs, in a fresh projectless session on the leading agent", async () => {
   const f = fixture();
   try {
     await f.enable();
     f.decide(() => ({ choice: "new_claude_none", confidence: 0.4, probabilities: { new_claude_none: 0.6, continue: 0.4 } }));
     const receipt = await f.send("帮我规划下一步", "original");
-    assert.equal(f.sends.length, 0);
-    assert.equal(f.service.core.state().jobs[0]?.status, "awaiting_route");
     assert.deepEqual((f.service.core.state().jobs[0] as any).routingDecision,
       { provider: "vercel", choice: "new_claude_none", confidence: 0.4, probability: 0.6, margin: 0.6 - 0.4,
         intent: { choice: "new", confidence: 0.4, probability: 1 } });
-    await f.send("1", "choice");
+    assert.equal(f.sends.length, 1);
     assert.equal(f.sends[0]?.text, "帮我规划下一步");
     assert.equal(f.sends[0]?.agent, "claude");
-    await f.send("1", "choice");
+    assert.equal(f.sends[0]?.projectId, null);
     await f.send("帮我规划下一步", "original");
-    assert.equal(f.sends.length, 1);
+    assert.equal(f.sends.length, 1, "A repeated event is not sent twice");
+    assert.equal(f.service.core.state().jobs.find((job) => job.id === receipt.jobId)?.status, "completed");
+  } finally { f.close(); }
+});
+
+test("a low-confidence task stays in the current conversation when that is the leading guess", async () => {
+  const f = fixture();
+  try {
+    f.service.core.setRoutingSettings({ mode: "off" });
+    await f.send("《余烬远征》先做个战斗原型");
+    const current = f.service.core.state().selection;
+    await f.enable();
+    f.decide(() => ({ choice: "continue", confidence: 0.55, probabilities: { continue: 0.55, new_codex_none: 0.45 } }));
+    await f.send("《余烬远征》这个游戏在我电脑的哪个目录？");
+    assert.equal(f.sends.length, 2);
+    assert.equal(f.sends[1]?.nativeId, f.sends[0]?.nativeId);
+    assert.deepEqual(f.service.core.state().selection.sessionId, current.sessionId);
+  } finally { f.close(); }
+});
+
+test("a navigation request never becomes a task, even when it names the current destination", async () => {
+  const f = fixture();
+  try {
+    f.service.core.setRoutingSettings({ mode: "off" });
+    await f.send("先开始一个任务");
+    await f.enable();
+    f.decide(() => ({ choice: "switch_codex", confidence: 0.5, probabilities: { switch_codex: 0.5, continue: 0.5 } }));
+    const receipt = await f.send("请使用Codex。");
+    assert.equal(f.sends.length, 1, "Only the first task was sent");
     assert.equal(f.service.core.state().jobs.find((job) => job.id === receipt.jobId)?.status, "completed");
   } finally { f.close(); }
 });
@@ -305,6 +331,7 @@ test("reopening the current session does not invalidate a pending follow-up", as
   for (const entry of ["avatar", "session-picker"]) await t.test(entry, async () => {
     const f = fixture(); let release!: () => void;
     try {
+      f.service.core.setRoutingSettings({ mode: "off" }); // bootstrap the current session before any provider is configured
       await f.send("先给出卡牌游戏方案"); await f.enable();
       const selected = f.service.core.state().selection;
       const session = f.service.core.state().sessions.find((session) => session.id === selected.sessionId)!;
@@ -326,6 +353,7 @@ test("reopening the current session does not invalidate a pending follow-up", as
 test("opening the current agent preserves an unanswered routing clarification", async () => {
   const f = fixture();
   try {
+    f.service.core.setRoutingSettings({ mode: "off" }); // bootstrap the current session before any provider is configured
     await f.send("先讨论游戏方案"); await f.enable("confirm");
     const receipt = await f.send("帮我规划下一步");
     const selected = f.service.core.state().selection;
@@ -338,6 +366,7 @@ test("opening the current agent preserves an unanswered routing clarification", 
 test("reopening the current agent supersedes an unfinished navigation to another agent", async () => {
   const f = fixture(); let release!: () => void;
   try {
+    f.service.core.setRoutingSettings({ mode: "off" }); // this test is about navigation timing, not routing decisions
     await f.send("继续当前任务");
     const selected = f.service.core.state().selection;
     let started!: () => void;
@@ -426,6 +455,7 @@ test("the gateway distinguishes replying from navigation even when target labels
 test("the routing model receives independent-new-task criteria and the current conversation identity", async () => {
   const f = fixture();
   try {
+    f.service.core.setRoutingSettings({ mode: "off" }); // bootstrap the current session before any provider is configured
     await f.send("记住蓝鲸七号");
     const current = f.service.core.state().selection;
     await f.enable();
@@ -468,28 +498,6 @@ test("new-task intent excludes the old conversation even when a flat route prefe
   assert.equal(requests.length, 2, "Resolve a conflicting destination against the independently classified intent");
   assert.deepEqual(Object.keys(requests[1].questions.route.criteria).sort(), ["clarify", "new_codex_none"]);
   assert.equal(answer.choice, "new_codex_none");
-});
-
-test("a create-project intent excludes projectless chats before resolving an uncertain destination", async () => {
-  const requests: any[] = [];
-  const gateway = new JevGateway({ read: async () => ({ apiKey: "fixture-key" }), write: async () => {}, remove: async () => {} },
-    async (_url, init) => {
-      const body = JSON.parse(String(init?.body)); requests.push(body);
-      const route = body.questions.intent ? { choice: "new_project_codex", confidence: 0.78,
-        probabilities: { new_project_codex: 0.89, new_codex_none: 0.11 } } :
-        { choice: "new_project_codex", confidence: 1, probabilities: { new_project_codex: 1 } };
-      return Response.json({ answers: { route: { type: "choice", ...route },
-        intent: { type: "choice", choice: "project", confidence: 1, probabilities: { project: 1 } } } });
-    }, () => Date.parse("2026-09-20T00:00:00+08:00"));
-  const current = { agent: "codex", mode: "code", projectId: null, sessionId: "old" };
-  const context = { text: "使用codex创建一个项目，先设计Godot卡牌游戏", current, active: { codex: current },
-    history: [], defaultAgent: "codex", settings: defaultRoutingSettings, projects: [], sessions: [],
-    projectCreationAgents: ["codex"], probes: { codex: { ready: true, reason: "" } } };
-  const answer = await gateway.choose(context, routeActions(context));
-  assert.equal(requests.length, 2);
-  assert.deepEqual(Object.keys(requests[1].questions.route.criteria).sort(), ["clarify", "new_project_codex"]);
-  assert.equal(answer.choice, "new_project_codex");
-  assert.equal(answer.confidence, 1);
 });
 
 test("same-task intent cannot override a destination that requires clarification", async () => {
@@ -551,11 +559,13 @@ test("confirmation mode independently waits for each message and unbinding cance
   } finally { f.close(); }
 });
 
-test("the trial cutoff prevents even a connection test from making a paid request", async () => {
+test("no date-based cutoff: a user's own Vercel key is still tested after the promotion ends", async () => {
   let calls = 0;
   const gateway = new JevGateway({ read: async () => ({ apiKey: "fixture-key" }), write: async () => {}, remove: async () => {} },
-    async () => { calls++; return Response.json({}); }, () => Date.parse("2026-09-25T00:00:00+08:00"));
-  await assert.rejects(gateway.test(), /免费试验已到期/); assert.equal(calls, 0);
+    async () => { calls++; return Response.json({ answers: { connection: { type: "choice", choice: "ok", confidence: 1, probabilities: { ok: 1 } } } }); },
+    () => Date.parse("2026-10-01T00:00:00+08:00"));
+  await gateway.test(); assert.equal(calls, 1);
+  assert.deepEqual(Object.keys(gateway.status()).sort(), ["configured", "verifiedAt"]);
 });
 
 test("invalid provider choices cannot escape the catalog or clear a project", async () => {

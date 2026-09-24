@@ -85,7 +85,7 @@ test("browsing another agent preserves and can resolve an older clarification", 
   const f = fixture();
   try {
     await f.core.openAgent("codex");
-    f.core.routeDecision = async () => ({ choice: "continue", confidence: 0.5, probabilities: { continue: 0.5, new_claude_none: 0.5 } });
+    f.core.routeDecision = async () => ({ choice: "clarify", confidence: 0.5, probabilities: { clarify: 0.5, continue: 0.5 } });
     const old = await f.send("继续游戏");
     await f.core.openAgent("claude");
     assert.equal(f.core.state().jobs.find((j) => j.id === old.jobId)?.status, "awaiting_route");

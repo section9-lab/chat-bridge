@@ -87,13 +87,10 @@ test("Claude Code verifies exact IDs, never silently creates a replacement for a
   } finally { f.close(); }
 });
 
-test("Claude can start the first session in an existing Bridge-managed project directory", async () => {
+test("Claude can start the first session in an existing project directory that has no session yet", async () => {
   const f = await fixture();
   try {
     const project = join(f.directory, "new-project"); mkdirSync(project);
-    const registered = await f.runtime.createProject({ root: project, name: "卡牌" });
-    assert.equal(registered.id, project); assert.deepEqual(registered.roots, [project]);
-    assert.equal(f.calls.length, 0, "Creating the project does not run a prompt in another directory");
     const session = await f.runtime.createSession({ agent: "claude", mode: "code", projectId: project, sessionTitle: "项目启动" }, "37d8c3a2-238f-4415-bd55-e62a437dfb24");
     assert.equal(session.projectId, project); assert.equal(session.cwd, project);
     await f.runtime.sendTurn(session, "开始", "job", { approval: async () => "accept" });

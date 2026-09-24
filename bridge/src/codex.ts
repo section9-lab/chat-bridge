@@ -164,7 +164,7 @@ export class CodexRuntime implements AgentAdapter {
         nativeIds: [project.id, ...Object.values(state["app-server-project-id-by-legacy-project-id-by-host"] ?? {})
           .map((mapping: any) => mapping?.[project.id]).filter((id): id is string => typeof id === "string")] }));
   }
-  private async registerProject(value: { root: string; name: string }, approval?: TurnHooks["approval"], fresh = false) {
+  private async registerProject(value: { root: string; name: string }, approval?: TurnHooks["approval"]) {
     if (!isAbsolute(value.root) || !statSync(value.root, { throwIfNoEntry: false })?.isDirectory()) throw new BridgeError("TARGET_MISSING", "项目目录不存在。");
     await this.initialize();
     let desktop = this.desktopProjects(value.root);
@@ -174,8 +174,7 @@ export class CodexRuntime implements AgentAdapter {
         const config = await this.rpc!.call("config/read", { includeLayers: false });
         if (config.config?.projects?.[value.root]?.trust_level !== "trusted") {
           untrusted = true;
-          // A new-project action explicitly authorizes its newly created, empty directory; existing files still require consent.
-          if (fresh && readdirSync(value.root).length === 0 || await approval?.({ kind: "projectTrust", cwd: value.root, reason: "将「" + value.name + "」添加到 Codex 项目列表，需要你确认信任该目录。",
+          if (await approval?.({ kind: "projectTrust", cwd: value.root, reason: "将「" + value.name + "」添加到 Codex 项目列表，需要你确认信任该目录。",
             detail: "确认后，Codex 可以读取、修改和执行此目录中的文件，并加载项目配置。只保存此目录的信任设置，以后使用该目录无需重复确认。" }) === "accept") {
             if (this.closed) throw new BridgeError("CLOSED", "本地服务已停止。");
             await this.rpc!.call("config/value/write", { keyPath: "projects." + JSON.stringify(value.root) + ".trust_level", value: "trusted", mergeStrategy: "upsert" });
@@ -205,13 +204,6 @@ export class CodexRuntime implements AgentAdapter {
       project = { id: native.id, name: native.name, roots: native.roots.map((root: any) => root.path) };
     }
     return { project, untrusted };
-  }
-  async createProject(value: { root: string; name: string }): Promise<NativeProject> {
-    const { project } = await this.registerProject(value, undefined, true);
-    if (!this.desktopProjects(value.root).some(saved => saved.nativeIds.includes(project.id))) {
-      throw new BridgeError("PROJECT_NOT_READY", "Codex 项目侧栏登记尚未完成。");
-    }
-    return project;
   }
   async bindProject(session: NativeSession, value: { root: string; name: string }, title: string,
     approval?: TurnHooks["approval"]): Promise<{ project: NativeProject; session: NativeSession; notice?: string }> {

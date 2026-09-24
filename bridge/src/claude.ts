@@ -72,16 +72,10 @@ export class ClaudeRuntime implements AgentAdapter {
       return text ? [{ id: message.uuid, role: message.type, text, createdAt: new Date((session.updatedAt ?? 0) * 1000).toISOString() }] : [];
     }).slice(-50);
   }
-  async createProject(value: { root: string; name: string }): Promise<NativeProject> {
-    if (!isAbsolute(value.root) || !statSync(value.root, { throwIfNoEntry: false })?.isDirectory()) throw new BridgeError("TARGET_MISSING", "项目目录不存在。");
-    // Claude Code groups its native transcripts by cwd; the first query persists this project and session.
-    return { id: value.root, name: value.name, roots: [value.root] };
-  }
   async createSession(target: Target, creationKey: string): Promise<NativeSession> {
     if (target.mode !== "code") throw new BridgeError("TARGET_MISMATCH", "当前仅支持 Claude Code 会话。");
-    const cwd = target.projectId ?? this.options.workspace;
-    if (!target.projectId) mkdirSync(cwd, { recursive: true, mode: 0o700 });
-    // Bridge-managed projects are existing directories even before their first native session is created.
+    const cwd = target.projectId ?? this.options.projectlessRoot ?? this.options.workspace;
+    if (!target.projectId && !this.options.projectlessRoot) mkdirSync(cwd, { recursive: true, mode: 0o700 });
     if (!isAbsolute(cwd) || !statSync(cwd, { throwIfNoEntry: false })?.isDirectory()) throw new BridgeError("TARGET_MISSING", "项目目录已不存在。");
     this.fresh.add(creationKey);
     return { nativeId: creationKey, title: target.sessionTitle ?? "Claude Code 新会话", projectId: target.projectId, cwd, runtime: "claude-code", updatedAt: Date.now() / 1000 };
