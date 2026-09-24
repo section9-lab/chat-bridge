@@ -113,13 +113,20 @@ final class MessageRenderingTests: XCTestCase {
                 content.layoutSubtreeIfNeeded()
                 found = descendants(content).compactMap { $0 as? NSScrollView }.first
                 if let found, let document = found.documentView,
-                   document.bounds.height > found.contentView.bounds.height * 2, document.visibleRect.minY > 100 { break }
+                   let bubble = descendants(content).compactMap({ $0 as? NSVisualEffectView }).first(where: { $0.layer?.cornerRadius == 22 }),
+                   document.bounds.height > found.contentView.bounds.height * 2,
+                   document.visibleRect.maxY + 1 >= document.convert(bubble.bounds, from: bubble).maxY { break }
             }
             let scroll = try XCTUnwrap(found)
             let document = try XCTUnwrap(scroll.documentView)
             XCTAssertGreaterThan(document.bounds.height, scroll.contentView.bounds.height * 2,
                                  "The full message must lay out in the \(workspace ? "dashboard" : "panel")")
             XCTAssertGreaterThan(document.visibleRect.minY, 100, "Text growth must scroll even when message count and ID stay the same")
+            let bubble = try XCTUnwrap(descendants(content).compactMap { $0 as? NSVisualEffectView }
+                .first { $0.layer?.cornerRadius == 22 })
+            let bottom = document.convert(bubble.bounds, from: bubble).maxY
+            XCTAssertGreaterThanOrEqual(document.bounds.maxY + 1, bottom, "The scroll range must contain the entire bubble")
+            XCTAssertGreaterThanOrEqual(document.visibleRect.maxY + 1, bottom, "The growing message's last line must remain visible")
             XCTAssertEqual(service.state.messages.map(\.id), ["stream"])
         }
     }

@@ -25,6 +25,8 @@ flowchart LR
 
 Both runners use Xcode 16.4 and target macOS 13.5. The runner architecture is checked before building. Each job compiles Swift and installs native npm dependencies on its own host, avoiding cross-architecture SQLite binaries. Node is pinned by `.nvmrc` and downloaded from Node.js with its official SHA-256 manifest. npm and Swift use the committed lockfiles. Build caches are intentionally omitted for the first pipeline.
 
+macOS 13.5 is the minimum because the bundled Node 24 runtime requires it. [Test macOS](../.github/workflows/test.yml) runs native regression tests on macOS 14, 15 and 26; the release jobs additionally cover both ARM64 and Intel on macOS 15. Local verification on macOS 27 complements this matrix. The deployment target and bundle checks cover the 13.5 minimum, but do not replace runtime testing on a macOS 13.5 machine, which is not part of this hosted matrix.
+
 The native app icon is compiled separately with Xcode 26+ using `bash scripts/build-icon.sh`. Commit the `AppIcon.icon` source together with `Assets.car` and `AppIcon.icns`. Both release jobs copy these architecture-independent resources; the asset catalog includes static fallbacks for older macOS versions. Icon generation does not raise the app's minimum macOS version or require a newer compiler on the release runners.
 
 ## Tags and versions

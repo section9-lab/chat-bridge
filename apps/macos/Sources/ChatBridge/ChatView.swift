@@ -276,7 +276,8 @@ struct ChatView: View {
                 }.padding(.horizontal, workspace ? 24 : 12)
                     .padding(.top, workspace ? 24 : 48).padding(.bottom, workspace ? 24 : 32)
             }
-            .scrollIndicators(workspace ? .hidden : .never).scrollContentBackground(.hidden)
+            // A legacy scroller appearing mid-stream changes the width and corrupts LazyVStack's scroll range on macOS 15.
+            .scrollIndicators(.never).scrollContentBackground(.hidden)
             .overlay(alignment: .top) {
                 ZStack {
                     if !reduceTransparency {
