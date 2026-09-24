@@ -73,18 +73,17 @@ try {
   assert.ok((await readFile(join(bundle, "Resources/service/node_modules/@photon-ai/imessage-kit/dist/index.js"), "utf8")).includes("var RETRY_ATTEMPTS = 1;"));
   checks.push({ id: "BUNDLE-06", passed: true, description: "Packaged channel APIs stay dormant, reject invalid binding, and contain the single-attempt iMessage patch." });
   const help = await service.peer.call("message.send", { text: "/help", eventId: "fixture-help", selectionVersion: 1 });
-  const menu = await service.peer.call("message.send", { text: "菜单", eventId: "fixture-menu", selectionVersion: 1 });
   assert.match(help.message, /命令指南/);
   assert.match(help.message, /\/status/);
-  assert.equal(menu.message, help.message);
   assert.equal((await service.peer.call("state.get")).jobs.length, 0);
   assert.equal(nativeMutations, 0);
-  checks.push({ id: "BUNDLE-08", passed: true, description: "Packaged /help and Chinese menu return the command guide without creating an Agent task." });
-  const job = await service.peer.call("message.send", { text: "Fixture task", eventId: "fixture-task", selectionVersion: 1 });
+  checks.push({ id: "BUNDLE-08", passed: true, description: "Packaged /help returns the command guide without creating an Agent task." });
+  // Natural-language input, including the former menu alias, now goes through routing.
+  const job = await service.peer.call("message.send", { text: "菜单", eventId: "fixture-task", selectionVersion: 1 });
   const cancelled = await service.peer.call("task.action", { action: "cancel", jobId: job.jobId, eventId: "fixture-cancel" });
   assert.equal(cancelled.jobs.find((item) => item.id === job.jobId)?.status, "cancelled");
   assert.equal(nativeMutations, 0);
-  checks.push({ id: "BUNDLE-07", passed: true, description: "Packaged task controls cancel an unsent task without invoking a native Agent." });
+  checks.push({ id: "BUNDLE-07", passed: true, description: "Packaged natural-language input creates a cancellable unsent task without invoking a native Agent." });
   await service.stop();
   checks.push({ id: "BUNDLE-03", passed: true, description: "Helper exits after parent closes its inherited pipe." });
   service = await start();
