@@ -12,7 +12,8 @@ let package = Package(
         .target(name: "ChatBridgeKit"),
         .executableTarget(name: "ChatBridge", dependencies: ["ChatBridgeKit",
                           .product(name: "MarkdownUI", package: "swift-markdown-ui")],
-                          resources: [.copy("Resources/AgentIcons"), .copy("Resources/ThirdPartyLicenses")]),
+                          resources: [.copy("Resources/AgentIcons"), .copy("Resources/Onboarding"),
+                                      .copy("Resources/ThirdPartyLicenses")]),
         .testTarget(name: "ChatBridgeKitTests", dependencies: ["ChatBridgeKit"]),
         .testTarget(name: "ChatBridgeTests", dependencies: ["ChatBridge"])
     ],

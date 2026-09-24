@@ -16,14 +16,14 @@ struct Agent: Identifiable {
     ]
     static func find(_ id: String) -> Agent { all.first { $0.id == id } ?? all[0] }
     var applicationURL: URL? { bundleID.flatMap { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) } }
-    private static let iconBundle: Bundle = {
+    static let resourceBundle: Bundle = {
         if let url = Bundle.main.url(forResource: "ChatBridge_ChatBridge", withExtension: "bundle"),
            let bundle = Bundle(url: url) { return bundle }
         return .module
     }()
     func icon(dark: Bool) -> NSImage {
         let variant = dark ? "dark" : "light"
-        if let url = Self.iconBundle.url(forResource: id + "-" + variant, withExtension: "png", subdirectory: "AgentIcons"),
+        if let url = Self.resourceBundle.url(forResource: id + "-" + variant, withExtension: "png", subdirectory: "AgentIcons"),
            let image = NSImage(contentsOf: url) {
             image.size = NSSize(width: 18, height: 18)
             image.accessibilityDescription = name
