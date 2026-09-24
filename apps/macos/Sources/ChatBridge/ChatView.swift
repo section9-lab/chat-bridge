@@ -66,10 +66,18 @@ private enum MaterialMasks {
 struct MessageBubble<Content: View>: View {
     var user = false
     var maxWidth: CGFloat = 310
+    // Where a user message came from, shown beside the bubble so it costs no line of its own.
+    var source: String? = nil
+    var iconSize: CGFloat = 16
     @ViewBuilder var content: Content
     var body: some View {
-        HStack {
+        HStack(alignment: .top, spacing: 8) {
             if user { Spacer(minLength: 44) }
+            if user, let icon = MessageSource.icon(source) {
+                Image(nsImage: icon).resizable().scaledToFit().frame(width: iconSize, height: iconSize)
+                    .foregroundStyle(.secondary).padding(.top, 10)
+                    .help("来自" + MessageSource.name(source)).accessibilityLabel("来自" + MessageSource.name(source))
+            }
             content
                 .padding(.horizontal, 18).padding(.vertical, user ? 10 : 12)
                 .background(FrostedBubble(user: user))
@@ -87,13 +95,26 @@ struct ChatView: View {
     var close: () -> Void
     var workspace = false
     var openDashboard: () -> Void = {}
+    var openFloating: () -> Void = {}
     var dashboardTrailingInset: CGFloat = 1
     @State private var composerFocusRequest = 0
-    @State private var choosingSession = false
-    @State private var dashboardHovered = false
+    @State private var switchHovered = false
     private var ready: Bool { service.canSend }
     private var messages: [Message] {
         service.state.selection.agent == service.viewedAgent ? service.state.messages : []
+    }
+    /// Tasks that still need attention. Finished ones leave the conversation: a failure is shown
+    /// only while it is the newest task in this session, and a cancellation never lingers.
+    private var taskCards: [JobSummary] {
+        let session = service.state.selection.sessionId
+        let inSession = service.state.jobs.filter { $0.target.agent == service.viewedAgent && ($0.sessionId ?? $0.target.sessionId) == session }
+        return service.state.jobs.filter { job in
+            if ["routing", "awaiting_route"].contains(job.status) { return true }
+            guard inSession.contains(where: { $0.id == job.id }) else { return false }
+            if ["completed", "cancelled"].contains(job.status) { return false }
+            if ["failed", "interrupted"].contains(job.status) { return inSession.first?.id == job.id }
+            return true
+        }
     }
     private var draft: Binding<String> {
         Binding(get: { service.drafts[service.draftKey] ?? "" }, set: { service.updateDraft($0) })
@@ -206,7 +227,7 @@ struct ChatView: View {
                                 .accessibilityLabel("回复：" + quote.text)
                                 .frame(maxWidth: workspace ? 640 : 310, alignment: .leading)
                             }
-                            conversationMessage(user: message.role == "user") {
+                            conversationMessage(user: message.role == "user", source: message.source) {
                                 VStack(alignment: .leading, spacing: 8) {
                                     MessageMarkdown(text: message.text).equatable()
                                     ForEach(message.attachments ?? []) { file in
@@ -223,15 +244,22 @@ struct ChatView: View {
                             }
                         }.id(message.id)
                     }
-                    ForEach(service.state.jobs.filter {
-                        ["routing", "awaiting_route"].contains($0.status) ||
-                        $0.target.agent == service.viewedAgent && ($0.sessionId ?? $0.target.sessionId) == service.state.selection.sessionId && $0.status != "completed"
-                    }.prefix(3)) { job in
-                        MessageBubble {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text(job.id).font(.caption.monospaced()).foregroundStyle(.secondary)
-                                Text(job.error ?? job.statusLabel).font(.system(size: 13))
-                                TaskControls(service: service, job: job)
+                    // Jobs arrive newest first; show the latest few in the order they were sent.
+                    ForEach(Array(taskCards.prefix(3).reversed())) { job in
+                        VStack(spacing: 12) {
+                            // A queued request is only written to the conversation once its turn
+                            // starts, so show it here until then rather than leaving a bare status card.
+                            if !messages.contains(where: { $0.id == job.id + ":user" }) {
+                                conversationMessage(user: true, source: job.origin?.kind) {
+                                    MessageMarkdown(text: job.text).equatable()
+                                }
+                            }
+                            MessageBubble {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text(job.id).font(.caption.monospaced()).foregroundStyle(.secondary)
+                                    Text(job.error ?? job.statusLabel).font(.system(size: 13))
+                                    TaskControls(service: service, job: job)
+                                }
                             }
                         }
                     }
@@ -446,18 +474,18 @@ struct ChatView: View {
         }
         .frame(maxWidth: .infinity).padding(.vertical, 76)
     }
-    private func conversationMessage<Content: View>(user: Bool, @ViewBuilder content: () -> Content) -> some View {
-        MessageBubble(user: user, maxWidth: workspace ? 640 : 310) {
-            VStack(alignment: .leading, spacing: 10) {
-                if workspace {
-                    HStack(spacing: 7) {
-                        if !user {
-                            Image(nsImage: Agent.find(service.viewedAgent).icon(dark: colorScheme == .dark))
-                                .resizable().scaledToFit().frame(width: 20, height: 20)
-                        }
-                        Text(user ? "你" : service.displayName(service.viewedAgent))
-                            .font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
-                    }
+    private func conversationMessage<Content: View>(user: Bool, source: String? = nil, @ViewBuilder content: () -> Content) -> some View {
+        MessageBubble(user: user, maxWidth: workspace ? 640 : 310, source: source, iconSize: workspace ? 20 : 16) {
+            // The sender line names the answering Agent, so the menu bar panel keeps it too, only smaller.
+            // A user message's source icon sits beside the bubble instead.
+            VStack(alignment: .leading, spacing: workspace ? 10 : 6) {
+                if !user {
+                HStack(spacing: workspace ? 7 : 5) {
+                    Image(nsImage: Agent.find(service.viewedAgent).icon(dark: colorScheme == .dark))
+                        .resizable().scaledToFit().frame(width: workspace ? 20 : 15, height: workspace ? 20 : 15)
+                    Text(service.displayName(service.viewedAgent))
+                        .font(.system(size: workspace ? 12 : 11, weight: .semibold)).foregroundStyle(.secondary)
+                }
                 }
                 content()
             }

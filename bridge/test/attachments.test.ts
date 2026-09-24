@@ -25,6 +25,7 @@ function fixture() {
     },
   };
   const service = createService(input, output, join(directory, "bridge.sqlite"), { codex: adapter });
+  service.core.setRoutingSettings({ mode: "off" }); // attachments are not about routing; keep messages going straight to the current target
   return { directory, native, service, prompts,
     close() { native.close(); service.close(); rmSync(directory, { recursive: true, force: true }); } };
 }
@@ -44,11 +45,13 @@ test("desktop files are copied, sent to the Agent, and retained with reply quote
     let messages = f.service.core.state().messages as any[];
     assert.equal(messages[0].text, "请查看文件");
     assert.equal(messages[0].attachments[0].id, file.id);
+    assert.equal(messages[0].source, "desktop");
     assert.deepEqual(messages[1].replyTo, { id: messages[0].id, text: "请查看文件" });
     await f.service.core.loadHistory(f.service.core.state().selection.sessionId!);
     messages = (await f.native.call<any>("state.get")).messages;
     assert.equal(messages[0].text, "请查看文件", "Internal file paths must not replace the user's message after refresh");
     assert.equal(messages[0].attachments[0].id, file.id);
+    assert.equal(messages[0].source, "desktop", "The message source must survive a history refresh");
     assert.deepEqual(messages[1].replyTo, { id: messages[0].id, text: "请查看文件" });
   } finally { f.close(); }
 });
@@ -96,7 +99,7 @@ test("attachments survive stale target rejection and attached command text is tr
   } finally { f.close(); }
 });
 
-test("routing failure retains attachments until a target is selected", async () => {
+test("a routing failure with an explicitly opened agent still delivers the attachment there", async () => {
   const f = fixture();
   try {
     const source = join(f.directory, "note.txt"); writeFileSync(source, "hello");
@@ -108,13 +111,26 @@ test("routing failure retains attachments until a target is selected", async () 
     const receipt = f.service.core.receive(origin, "读取附件", undefined, files);
     await f.service.core.run(receipt.jobId!);
     const job = f.service.core.state().jobs[0]!;
+    assert.equal(job.status, "completed");
+    assert.ok(f.prompts[0]?.includes(files[0].path));
+  } finally { f.close(); }
+});
+
+test("routing failure with no established target retains attachments until one is selected", async () => {
+  const f = fixture();
+  try {
+    const source = join(f.directory, "note.txt"); writeFileSync(source, "hello");
+    const files = await f.native.call<any[]>("attachments.import", { paths: [source] });
+    f.service.core.setRoutingSettings({ mode: "auto" });
+    f.service.core.routeDecision = async () => { throw new Error("offline"); };
+    const origin = { kind: "desktop" as const, accountId: "local", peerId: "local", eventId: "route-file" };
+    const receipt = f.service.core.receive(origin, "读取附件", undefined, files);
+    await f.service.core.run(receipt.jobId!);
+    const job = f.service.core.state().jobs[0]!;
     assert.equal(job.status, "awaiting_route");
     assert.equal(job.attachments?.[0]?.id, files[0].id);
-    const index = job.routing!.options!.findIndex(action => action.kind === "send" && action.target?.agent === "codex");
-    assert.ok(index >= 0);
-    f.service.core.resolveRouting(job.id, index + 1, origin);
-    await f.service.core.run(job.id);
-    assert.ok(f.prompts[0]?.includes(files[0].path));
+    // Nothing is engaged yet, so no destination is guessed: only manual selection is offered, and the file is not lost.
+    assert.deepEqual(job.routing!.options, []);
   } finally { f.close(); }
 });
 

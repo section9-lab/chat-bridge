@@ -250,9 +250,12 @@ final class BridgeService: ObservableObject {
             notice = nil
         }
         if let routed = decoded.jobs.first(where: { candidate in
-            guard candidate.routeMessage != nil, let previous = state.jobs.first(where: { $0.id == candidate.id }) else { return false }
+            guard candidate.routeMessage != nil, candidate.status == "completed",
+                  let previous = state.jobs.first(where: { $0.id == candidate.id }) else { return false }
             return previous.routeMessage == nil
         }) {
+            // Only a result that is itself the reply (status, a list, a switch) becomes a notice. A
+            // dispatched task's "received" receipt is for the phone; here its bubble and status card show it.
             notice = routed.routeMessage
         }
         state = decoded
@@ -316,7 +319,7 @@ final class BridgeService: ObservableObject {
             } else { updateState(value) }
             if action == "key.save" { routingNotice = "Key 已保存到钥匙串，Jev 连接验证通过。请选择路由方式开始试用。" }
             if action == "test" { routingNotice = "Jev 连接验证通过。" }
-            if action == "key.remove" { routingNotice = "Key 已移除，智能路由已关闭。" }
+            if action == "key.remove" { routingNotice = "Key 已移除，请重新保存 Key 后再使用智能路由。" }
             return true
         } catch { routingError = channelErrorMessage(error); return false }
     }

@@ -411,7 +411,7 @@ export class BridgeCore {
       for (const message of messages) {
         const id = "native:" + sessionId + ":" + message.id;
         const job = message.role === "user" ? jobs.find(job => this.prompt(job) === message.text) : undefined;
-        const item: Message = { ...message, id, sessionId, ...(job ? { text: job.text, attachments: job.attachments } : {}) };
+        const item: Message = { ...message, id, sessionId, ...(job ? { text: job.text, attachments: job.attachments, source: job.origin.kind } : {}) };
         if (item.role === "user") replyTo = this.quote(item.id, item.text);
         else if (item.role === "assistant") item.replyTo = replyTo;
         this.record("message", id, item);
@@ -1503,7 +1503,7 @@ export class BridgeCore {
           const current = this.find<Job>("job", job.id)!;
           this.record("job", job.id, { ...current, turnId, status: current.status === "stopping" ? "stopping" : "running" });
           this.record("message", job.id + ":user", { id: job.id + ":user", sessionId: session.id, role: "user", text: job.text,
-            attachments: job.attachments, createdAt: new Date().toISOString() });
+            attachments: job.attachments, source: job.origin.kind, createdAt: new Date().toISOString() });
           this.changed();
         },
         message: update,

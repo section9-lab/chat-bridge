@@ -75,6 +75,37 @@ struct Message: Decodable, Identifiable {
     var truncated: Bool?
     var replyTo: ReplyQuote?
     var attachments: [MessageAttachment]?
+    var source: String?
+}
+enum MessageSource {
+    private static var cache: [String: NSImage] = [:]
+    static func name(_ source: String?) -> String {
+        switch source {
+        case "imessage": return "iMessage"
+        case "weixin": return "微信"
+        case "desktop": return "这台 Mac"
+        default: return "你"
+        }
+    }
+    /// The logo of the app the message came from, read from the installed app so no third-party artwork ships with Chat Bridge.
+    static func icon(_ source: String?) -> NSImage? {
+        guard let source else { return nil }
+        if let cached = cache[source] { return cached }
+        let image: NSImage?
+        switch source {
+        case "imessage": image = appIcon("com.apple.MobileSMS")
+        case "weixin": image = appIcon("com.tencent.xinWeChat")
+        // A message typed on this Mac: the system computer symbol, as a peer of the phone channels.
+        case "desktop": image = NSImage(systemSymbolName: "laptopcomputer", accessibilityDescription: "这台 Mac")
+        default: image = nil
+        }
+        if let image { cache[source] = image }
+        return image
+    }
+    private static func appIcon(_ bundleId: String) -> NSImage? {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) else { return nil }
+        return NSWorkspace.shared.icon(forFile: url.path)
+    }
 }
 struct ReplyQuote: Decodable {
     var id: String
@@ -87,9 +118,13 @@ struct MessageAttachment: Decodable, Identifiable, Equatable {
     var size: Int
     var url: URL { URL(fileURLWithPath: path) }
 }
+struct JobOrigin: Decodable {
+    var kind: String
+}
 struct JobSummary: Decodable, Identifiable {
     var id: String
     var text: String
+    var origin: JobOrigin?
     var status: String
     var error: String?
     var target: Selection
