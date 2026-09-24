@@ -1,11 +1,11 @@
 import { execFile, spawn } from "node:child_process";
-import { mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { mkdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { homedir } from "node:os";
 import { createHash } from "node:crypto";
 import { promisify } from "node:util";
 import { setTimeout as delay } from "node:timers/promises";
-import { BridgeError, type AgentAdapter, type AgentProbe, type NativeMessage, type NativeProject, type NativeSession, type Target, type TurnHooks, type TurnResult } from "./core.js";
+import { BridgeError, ResumeRejectedError, type AgentAdapter, type AgentProbe, type NativeMessage, type NativeProject, type NativeSession, type Target, type TurnHooks, type TurnResult } from "./core.js";
 import { CodexRPC, CodexRPCError, type CodexConnection } from "./codex-rpc.js";
 import { AssistantText } from "./assistant-text.js";
 import { appVersion } from "./version.js";
@@ -13,6 +13,7 @@ import { appVersion } from "./version.js";
 type Installation = { installed: boolean; version?: string; executablePath?: string };
 type RuntimeOptions = {
   workspace: string;
+  projectlessRoot?: string;
   locate(): Promise<Installation>;
   connect?: (executable: string, workspace: string) => CodexConnection;
   onAvailability?: () => void;
@@ -141,7 +142,7 @@ export class CodexRuntime implements AgentAdapter {
     await this.initialize();
     const response = await this.rpc!.call("thread/read", { threadId: session.nativeId, includeTurns: false });
     if (response?.thread?.id !== session.nativeId) throw new BridgeError("TARGET_MISMATCH", "原会话核对失败。");
-    const page = await this.rpc!.call("thread/turns/list", { threadId: session.nativeId, limit: 25, sortDirection: "desc", itemsView: "summary" });
+    const page = await this.rpc!.call("thread/turns/list", { threadId: session.nativeId, limit: 25, sortDirection: "desc", itemsView: "full" });
     const messages: NativeMessage[] = [];
     for (const turn of [...(page.data ?? [])].reverse()) {
       for (const item of turn.items ?? []) {
@@ -219,13 +220,27 @@ export class CodexRuntime implements AgentAdapter {
         "项目已添加到 Codex；原会话尚未显示在项目下，请在 Codex 将该会话移入「" + project.name + "」。当前会话和上下文保留。";
     return { project, session: { ...session, projectId: project.id, title, cwd: response.thread.cwd ?? session.cwd }, ...(notice ? { notice } : {}) };
   }
+  // Codex Desktop gives each projectless chat its own folder, ~/Documents/Codex/<date>/new-chat;
+  // follow that instead of choosing a location of our own. Without projectlessRoot (tests) use workspace.
+  private projectlessDirectory(): string {
+    const root = this.options.projectlessRoot;
+    if (!root) return this.options.workspace;
+    const now = new Date(), day = [now.getFullYear(), now.getMonth() + 1, now.getDate()].map((part) => String(part).padStart(2, "0")).join("-");
+    const parent = join(root, day);
+    mkdirSync(parent, { recursive: true });
+    for (let index = 1; ; index++) {
+      const folder = join(parent, index === 1 ? "new-chat" : "new-chat-" + index);
+      try { mkdirSync(folder); return realpathSync(folder); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST" || index >= 1000) throw error; }
+    }
+  }
   private policy(cwd = this.options.workspace) {
     return { cwd, approvalPolicy: "never", approvalsReviewer: "user", sandbox: "danger-full-access" };
   }
   async createSession(target: Target, _creationKey: string): Promise<NativeSession> {
     if (target.mode !== "code") throw new BridgeError("TARGET_MISMATCH", "当前仅支持 Codex Code 会话。");
     await this.initialize();
-    let cwd = this.options.workspace;
+    let cwd = target.projectId ? this.options.workspace : this.projectlessDirectory();
     if (target.projectId) {
       const project = (await this.rpc!.call("project/read", { projectId: target.projectId })).project;
       cwd = project?.roots?.[0]?.path;
@@ -246,8 +261,13 @@ export class CodexRuntime implements AgentAdapter {
     await this.initialize();
     if (this.loaded.has(session.nativeId) || this.external.has(session.nativeId)) return session;
     let response;
-    const cwd = session.cwd ?? this.options.workspace;
-    if (!isAbsolute(cwd) || !statSync(cwd, { throwIfNoEntry: false })?.isDirectory()) throw new BridgeError("TARGET_MISSING", "会话的原工作目录已不存在。");
+    let cwd = session.cwd ?? this.options.workspace;
+    // The folder a conversation ran in can be moved or deleted (often by the agent itself). The
+    // conversation still exists, so reopen it elsewhere rather than refusing to continue.
+    if (!isAbsolute(cwd) || !statSync(cwd, { throwIfNoEntry: false })?.isDirectory()) {
+      cwd = this.options.projectlessRoot ? homedir() : this.options.workspace;
+      mkdirSync(cwd, { recursive: true });
+    }
     try { response = await this.rpc!.call("thread/resume", { ...this.policy(cwd), threadId: session.nativeId, excludeTurns: true }); }
     catch (error) {
       if (error instanceof CodexRPCError && error.busyThreadId === session.nativeId) {
@@ -262,11 +282,11 @@ export class CodexRuntime implements AgentAdapter {
         }
         this.external.add(session.nativeId); return session;
       }
-      if (error instanceof BridgeError && error.code === "RUNTIME_REJECTED") throw new BridgeError("AGENT_UNAVAILABLE", "Codex 拒绝恢复原会话，请在本机检查运行时配置或连接状态后继续。");
+      if (error instanceof BridgeError && error.code === "RUNTIME_REJECTED") throw new ResumeRejectedError("Codex 拒绝恢复原会话，请在本机检查运行时配置或连接状态后继续。");
       throw error;
     }
     if (response?.thread?.id !== session.nativeId || response.cwd !== cwd) throw new BridgeError("TARGET_MISMATCH", "恢复的会话或工作目录不一致。");
-    this.loaded.add(session.nativeId); return session;
+    this.loaded.add(session.nativeId); return { ...session, cwd };
   }
   async sendTurn(session: NativeSession, text: string, jobId: string, hooks: TurnHooks = {}): Promise<TurnResult> {
     // Core has already created/resumed the session. Register before any await so

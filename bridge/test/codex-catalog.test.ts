@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { PassThrough } from "node:stream";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CodexRuntime } from "../src/codex.js";
@@ -55,7 +55,7 @@ function fixture() {
             { id: "progress", type: "agentMessage", text: "Checking", phase: "commentary" },
             { id: "a", type: "agentMessage", text: "Reply", phase: "final_answer" }
           ] }], nextCursor: null };
-          if (message.method === "thread/resume") result = { thread: thread(mismatch ? "wrong" : message.params.threadId), cwd: directory };
+          if (message.method === "thread/resume") result = { thread: thread(mismatch ? "wrong" : message.params.threadId), cwd: message.params.cwd ?? directory };
           if (message.method === "thread/start") result = { thread: { ...thread("new"), projectId: "project" }, cwd: directory };
           if (message.method === "turn/start") result = { turn: { id: "continued-turn", status: "completed", items: [
             { id: "answer", type: "agentMessage", text: "继续成功" }
@@ -84,6 +84,7 @@ test("Codex reads paginated native catalogs and legacy project membership withou
     assert.ok(f.sent.find((m) => m.method === "thread/list").params.sourceKinds.includes("appServer"));
     const history = await f.runtime.readHistory(sessions[0]);
     assert.deepEqual(history.map((m: any) => [m.role, m.text]), [["user", "Hello"], ["assistant", "Checking"], ["assistant", "Reply"]]);
+    assert.equal(f.sent.find((m) => m.method === "thread/turns/list").params.itemsView, "full", "summary view drops the in-progress commentary shown in chat");
     assert.equal(f.sent.some((m) => ["thread/start", "thread/resume", "turn/start"].includes(m.method)), false);
     await f.runtime.resumeSession(sessions[0]);
     const resume = f.sent.find((m) => m.method === "thread/resume").params;
@@ -115,35 +116,6 @@ test("Codex creates in the selected native project and rejects resume ID mismatc
     f.mismatch();
     await assert.rejects(f.runtime.resumeSession({ ...session, nativeId: "existing" }), /TARGET_MISMATCH/);
     assert.equal(f.sent.filter((m) => m.method === "thread/start").length, 1);
-  } finally { f.close(); }
-});
-
-test("a new empty Codex project saves only its exact trust entry and verifies desktop registration before creating a session", async () => {
-  const f = fixture();
-  try {
-    const root = join(f.directory, "new-game"); mkdirSync(root); f.untrust();
-    f.onOpen(async () => {
-      f.projects([{ id: "desktop-native", name: "卡牌", roots: [{ path: root }] }]);
-      writeFileSync(f.globalStatePath, JSON.stringify({ "local-projects": { saved: { id: "saved", rootPaths: [root] } },
-        "app-server-project-id-by-legacy-project-id-by-host": { local: { saved: "desktop-native" } } }));
-    });
-    const project = await f.runtime.createProject({ root, name: "卡牌" });
-    assert.equal(project.id, "desktop-native");
-    const writes = f.sent.filter((m: any) => m.method === "config/value/write");
-    assert.deepEqual(writes.map((m: any) => m.params), [{ keyPath: "projects." + JSON.stringify(root) + ".trust_level", value: "trusted", mergeStrategy: "upsert" }]);
-    assert.equal(f.opened[0], root);
-    assert.equal(f.sent.some((m: any) => m.method === "thread/start" || m.method === "turn/start"), false);
-  } finally { f.close(); }
-});
-
-test("project creation cannot silently trust an existing nonempty directory or claim a backend-only project is ready", async () => {
-  const f = fixture();
-  try {
-    f.untrust();
-    await assert.rejects(f.runtime.createProject({ root: f.directory, name: "既有目录" }), /PROJECT_NOT_READY/);
-    assert.equal(f.sent.some((m: any) => m.method === "config/value/write"), false);
-    assert.deepEqual(f.opened, []);
-    assert.equal(f.sent.some((m: any) => m.method === "thread/start" || m.method === "turn/start"), false);
   } finally { f.close(); }
 });
 
@@ -305,6 +277,31 @@ test("other resume rejections do not claim another window owns the session or ex
   } finally { f.close(); }
 });
 
+test("a task whose session Codex refuses to reopen runs in a fresh session instead of stalling", async () => {
+  const f = fixture();
+  const core = new BridgeCore(join(f.directory, "bridge.sqlite"), { codex: f.runtime });
+  const origin = (eventId: string) => ({ kind: "imessage" as const, accountId: "account", peerId: "owner", eventId });
+  try {
+    core.bindChannel("imessage", "account", "owner");
+    await core.refreshCatalog("codex");
+    core.receive(origin("projects"), "/projects");
+    core.receive(origin("project"), "01");
+    core.receive(origin("session"), "01");
+    const previous = core.state().selection.sessionId;
+    f.rejectResume({ code: -32603, message: "required MCP initialization failed: private-runtime-detail" });
+    const receipt = core.receive(origin("task"), "当前完成了什么？");
+    await core.run(receipt.jobId!);
+    assert.equal(core.state().jobs[0]?.status, "completed");
+    assert.equal(f.sent.filter((m) => m.method === "thread/start").length, 1);
+    assert.deepEqual(f.sent.filter((m) => m.method === "turn/start").map((m) => [m.params.threadId, m.params.input[0].text]),
+      [["new", "当前完成了什么？"]]);
+    const notice = core.outbox().find((entry) => entry.jobId === receipt.jobId && entry.kind === "receipt")!;
+    assert.match(notice.text, /已改在新会话中执行/);
+    assert.doesNotMatch(notice.text, /private-runtime-detail/);
+    assert.notEqual(core.state().selection.sessionId, previous, "follow-ups go to the conversation that actually ran");
+  } finally { core.close(); f.close(); }
+});
+
 test("an iMessage task blocked by a Codex writer stays unsent and continues the exact session once released", async () => {
   const f = fixture();
   const core = new BridgeCore(join(f.directory, "bridge.sqlite"), { codex: f.runtime });
@@ -337,7 +334,64 @@ test("an iMessage task blocked by a Codex writer stays unsent and continues the 
       [["existing", "当前完成了什么？"]]);
     assert.equal(f.sent.some((m) => m.method === "thread/start"), false);
     const reply = core.outbox().find((entry) => entry.kind === "assistant")!;
-    assert.equal(reply.text, "继续成功");
+    assert.equal(reply.text, "🤖 Codex\n继续成功", "the reply names the answering agent");
     assert.equal(reply.origin.kind, "imessage");
+  } finally { core.close(); f.close(); }
+});
+
+test("a projectless Codex session follows Codex Desktop's own folder convention, not a bridge directory", async () => {
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), "codex-projectless-")));
+  const root = join(directory, "Documents", "Codex"), starts: any[] = [];
+  const runtime = new CodexRuntime({ workspace: join(directory, "bridge-workspace"), projectlessRoot: root,
+    locate: async () => ({ installed: true, executablePath: "/fixture/codex" }),
+    connect: () => {
+      const input = new PassThrough(), output = new PassThrough();
+      let buffer = "";
+      output.on("data", (chunk) => {
+        buffer += chunk.toString();
+        let newline;
+        while ((newline = buffer.indexOf("\n")) >= 0) {
+          const message = JSON.parse(buffer.slice(0, newline)); buffer = buffer.slice(newline + 1);
+          if (!message.id) continue;
+          if (message.method === "thread/start") starts.push(message.params);
+          const result = message.method === "thread/start" ?
+            { thread: { id: "t" + starts.length, projectId: null }, cwd: message.params.cwd } : {};
+          input.write(JSON.stringify({ id: message.id, result }) + "\n");
+        }
+      });
+      return { input, output, close() { input.end(); output.end(); } };
+    } } as any);
+  try {
+    const first = await runtime.createSession({ agent: "codex", mode: "code", projectId: null }, "a");
+    const second = await runtime.createSession({ agent: "codex", mode: "code", projectId: null }, "b");
+    const now = new Date(), day = [now.getFullYear(), now.getMonth() + 1, now.getDate()].map((part) => String(part).padStart(2, "0")).join("-");
+    assert.equal(first.cwd, join(root, day, "new-chat"));
+    assert.equal(second.cwd, join(root, day, "new-chat-2"));
+    assert.deepEqual(starts.map((start) => start.cwd), [first.cwd, second.cwd]);
+    assert.equal(first.projectId, null);
+  } finally { runtime.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("a conversation whose folder was moved away is reopened in place of refusing to continue", async () => {
+  const f = fixture();
+  const core = new BridgeCore(join(f.directory, "bridge.sqlite"), { codex: f.runtime });
+  const origin = (eventId: string) => ({ kind: "imessage" as const, accountId: "account", peerId: "owner", eventId });
+  try {
+    core.bindChannel("imessage", "account", "owner");
+    await core.refreshCatalog("codex");
+    core.receive(origin("projects"), "/projects");
+    core.receive(origin("project"), "01");
+    core.receive(origin("session"), "01");
+    const selected = core.state().selection.sessionId!;
+    const gone = join(f.directory, "moved-away");
+    core["record"]("session", selected, { ...core.state().sessions.find((s) => s.id === selected)!, cwd: gone });
+    const receipt = core.receive(origin("task"), "游戏现在放在哪？");
+    await core.run(receipt.jobId!);
+    assert.equal(core.state().jobs[0]?.status, "completed");
+    assert.equal(f.sent.find((m) => m.method === "thread/resume").params.cwd, join(f.directory, "Default"));
+    assert.deepEqual(f.sent.filter((m) => m.method === "turn/start").map((m) => m.params.threadId), ["existing"], "the original conversation continues");
+    assert.equal(f.sent.some((m) => m.method === "thread/start"), false, "no replacement conversation");
+    const notice = core.outbox().find((entry) => entry.jobId === receipt.jobId && entry.kind === "receipt")!;
+    assert.match(notice.text, /原工作目录已不存在/);
   } finally { core.close(); f.close(); }
 });

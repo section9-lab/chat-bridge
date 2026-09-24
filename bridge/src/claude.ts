@@ -11,6 +11,7 @@ import { appVersion } from "./version.js";
 type Installation = { installed: boolean; executablePath?: string; version?: string };
 type RuntimeOptions = {
   workspace: string;
+  projectlessRoot?: string;
   locate(): Promise<Installation>;
   authenticate?: (executable: string) => Promise<boolean>;
   api?: Pick<typeof sdk, "listSessions" | "getSessionInfo" | "getSessionMessages" | "query">;
@@ -49,14 +50,19 @@ export class ClaudeRuntime implements AgentAdapter {
       reason: ready ? "Claude Code 已就绪，可选择已有项目与会话。" : status === "missing" ? "请先安装 Claude Code 命令行程序，安装后会自动检测。" :
         status === "needs_login" ? "请先登录 Claude Code，完成后会自动检测。" : "Claude Code 连接检查失败，将自动重新检测。" };
   }
+  // Claude Code has no separate projectless location: a conversation outside any project simply
+  // runs in the home directory. The legacy bridge workspace also still counts as projectless.
+  private projectless(cwd?: string): boolean {
+    return cwd === this.options.workspace || (!!this.options.projectlessRoot && cwd === this.options.projectlessRoot);
+  }
   private native(info: sdk.SDKSessionInfo): NativeSession {
     return { nativeId: info.sessionId, title: info.customTitle || info.summary || "Claude Code 会话",
-      cwd: info.cwd, projectId: info.cwd === this.options.workspace ? null : info.cwd ?? null,
+      cwd: info.cwd, projectId: this.projectless(info.cwd) ? null : info.cwd ?? null,
       runtime: "claude-code", updatedAt: info.lastModified / 1000 };
   }
   async listProjects(): Promise<NativeProject[]> {
     this.catalog = await this.api.listSessions();
-    const roots = [...new Set(this.catalog.map((session) => session.cwd).filter((cwd): cwd is string => !!cwd && isAbsolute(cwd) && cwd !== this.options.workspace))];
+    const roots = [...new Set(this.catalog.map((session) => session.cwd).filter((cwd): cwd is string => !!cwd && isAbsolute(cwd) && !this.projectless(cwd)))];
     return roots.map((root) => ({ id: root, name: basename(root), roots: [root] }));
   }
   async listSessions(): Promise<NativeSession[]> {
@@ -84,7 +90,7 @@ export class ClaudeRuntime implements AgentAdapter {
     if (session.runtime !== "claude-code" || !session.cwd) throw new BridgeError("TARGET_MISMATCH", "此会话不属于 Claude Code。");
     const info = await this.api.getSessionInfo(session.nativeId, { dir: session.cwd });
     if (!info && this.fresh.has(session.nativeId)) return session;
-    if (!info) throw new BridgeError("TARGET_MISSING", "原 Claude Code 会话不存在，未创建替代会话。");
+    if (!info) throw new BridgeError("TARGET_MISSING", "原 Claude Code 会话不存在。");
     if (!info.cwd || !statSync(session.cwd, { throwIfNoEntry: false })?.isDirectory()) throw new BridgeError("TARGET_MISSING", "原会话目录已不存在。");
     if (info.sessionId !== session.nativeId || realpathSync(info.cwd) !== realpathSync(session.cwd)) throw new BridgeError("TARGET_MISMATCH", "会话或工作目录核对失败。");
     return session;

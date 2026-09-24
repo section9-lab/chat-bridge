@@ -1,4 +1,5 @@
 import type { Readable, Writable } from "node:stream";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { agentIDs, BridgeCore, BridgeError, type AgentAdapter, type Preferences } from "./core.js";
 import { RPCPeer, RPCError, type Handler } from "./rpc.js";
@@ -15,13 +16,16 @@ export function createService(input: Readable, output: Writable, databasePath: s
     agents?: Partial<Record<typeof acpAgentIDs[number], AgentAdapter>> } = {}) {
   const handlers: Record<string, Handler> = {};
   const peer = new RPCPeer(input, output, handlers);
+  // Projectless conversations live where each agent puts its own, not inside Chat Bridge.
   const codex = dependencies.codex ?? new CodexRuntime({
     workspace: join(dirname(databasePath), "Workspaces", "Default"),
+    projectlessRoot: join(homedir(), "Documents", "Codex"),
     locate: () => peer.call("native.agent.probe", { agent: "codex" }),
     onAvailability: () => { if (!closed) core.invalidateAgent("codex"); },
   });
   const claude = dependencies.claude ?? new ClaudeRuntime({
     workspace: join(dirname(databasePath), "Workspaces", "Claude"),
+    projectlessRoot: homedir(),
     locate: () => peer.call("native.agent.probe", { agent: "claude" }),
   });
   const agents: Record<string, AgentAdapter> = { codex, claude };

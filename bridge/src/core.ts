@@ -1,17 +1,18 @@
 import Database from "better-sqlite3";
-import { chmodSync, mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { chmodSync, mkdirSync, statSync } from "node:fs";
+import { dirname, isAbsolute, join, sep } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { commandGuide, parseInput } from "./commands.js";
 import { splitReply, taskNotice } from "./messages.js";
 import { defaultRoutingSettings, isConfidentLookup, isConfidentRoute, routingProviders, routeActions, type RouteAction, type RouteAnswer, type RoutingContext, type RoutingSettings } from "./routing.js";
 import { outputProject, snapshotOutputs, type OutputAttachment } from "./outputs.js";
-import { createProjectDirectory, projectName } from "./projects.js";
 import { menuLine, renderTextMenu, textOptionIndex, type TextMenu, type TextOption, type TextView } from "./routing-options.js";
 import { attachmentLimit, importAttachments, type InputAttachment } from "./attachments.js";
 
 export const agentIDs = ["codex", "claude", "cursor", "grok", "opencode", "hermes"] as const;
 export const agentNames: Record<string, string> = { codex: "Codex", claude: "Claude Code", cursor: "Cursor", grok: "Grok", opencode: "OpenCode", hermes: "Hermes Agent" };
+// Plain Unicode, so phone channels without rich rendering (iMessage) still show who is answering.
+export const agentEmoji: Record<string, string> = { codex: "🤖", claude: "✳️", cursor: "🧊", grok: "⚡", opencode: "📟", hermes: "🕊️" };
 export type AgentProbe = { ready: boolean; reason: string; installed?: boolean; version?: string; executionError?: string;
   status?: "checking" | "missing" | "needs_login" | "ready" | "error" };
 export type Target = {
@@ -71,6 +72,11 @@ export interface AgentAdapter {
 
 export class BridgeError extends Error {
   constructor(public readonly code: string, message: string) { super(code + ": " + message); }
+}
+// The runtime refused to reopen a conversation (as opposed to it being busy with another writer,
+// which resolves by waiting). Nothing was sent, so the task may run in a fresh conversation.
+export class ResumeRejectedError extends BridgeError {
+  constructor(message: string) { super("AGENT_UNAVAILABLE", message); }
 }
 
 export class BridgeCore {
@@ -1327,6 +1333,11 @@ export class BridgeCore {
       const resumed = await adapter.resumeSession(session);
       if (this.closed) throw new BridgeError("CLOSED", "本地服务已停止。");
       if (resumed.nativeId !== session.nativeId || resumed.projectId !== session.projectId) throw new BridgeError("TARGET_MISMATCH", "原生会话核对不一致。");
+      if (resumed.cwd && resumed.cwd !== session.cwd) {
+        const moved = { ...session, cwd: resumed.cwd };
+        this.record("session", session.id, moved);
+        return moved;
+      }
       return session;
     }
     const key = target.creationKey!;
@@ -1436,13 +1447,41 @@ export class BridgeCore {
     try {
       job.status = "preparing";
       this.record("job", job.id, job);
-      if (job.newProject) await this.prepareProject(job);
-      if (this.closed || this.find<Job>("job", job.id)?.status !== "preparing") return;
-      let session = await this.ensureSession(job.target);
+      let session: Session, replaced = "";
+      const previousCwd = job.target.sessionId ? this.find<Session>("session", job.target.sessionId)?.cwd : undefined;
+      try { session = await this.ensureSession(job.target); }
+      catch (error) {
+        // Nothing has been sent yet. When the original conversation is gone or cannot be reopened,
+        // or the project folder a new one needs is gone, run the task in a fresh conversation on
+        // the same agent — in the same project if it is still usable, otherwise without a project.
+        const previous = job.target.sessionId;
+        const missing = error instanceof BridgeError && error.code === "TARGET_MISSING";
+        const reason = previous ? error instanceof ResumeRejectedError ? "原会话暂时无法打开" : missing ? "原会话已不存在" : "" :
+          missing && job.target.projectId ? "原项目目录已不存在" : "";
+        if (!reason || !this.probes[job.target.agent]?.ready || this.closed) throw error;
+        const failedKey = job.target.creationKey;
+        const start = async (projectId: string | null) => {
+          job.target = this.reserve({ ...job.target, projectId, sessionId: null, creationKey: null }, true);
+          const selection = this.selection();
+          if (selection.agent === job.target.agent && (previous ? selection.sessionId === previous : selection.creationKey === failedKey)) {
+            this.put("selection", { ...selection, projectId, sessionId: null, creationKey: job.target.creationKey ?? null, engaged: true });
+          }
+          this.record("job", job.id, job);
+          return this.ensureSession(job.target);
+        };
+        let where = "无项目会话";
+        if (previous && job.target.projectId) {
+          try { session = await start(job.target.projectId); where = "新会话"; }
+          catch (retry) { if (!(retry instanceof BridgeError && retry.code === "TARGET_MISSING") || this.closed) throw retry; session = await start(null); }
+        } else session = await start(null);
+        replaced = "\n" + reason + "，已改在" + where + "中执行。";
+      }
       if (this.closed) return;
       if (this.find<Job>("job", job.id)?.status !== "preparing") return;
       job.sessionId = session.id; job.status = "dispatching";
-      job.routeMessage = this.targetName(job.target, session) + "\n已收到✅";
+      const relocated = !replaced && previousCwd && session.cwd && session.cwd !== previousCwd;
+      job.routeMessage = this.targetName(job.target, session) + replaced +
+        (relocated ? "\n原工作目录已不存在（可能已被移动或删除），已在原会话中继续，临时工作目录：" + session.cwd : "") + "\n已收到✅";
       this.db.transaction(() => {
         this.record("job", job.id, job);
         if (job.origin.kind !== "desktop") this.enqueueReply(job.id + ":receipt" + (job.receiptRevision ? ":" + job.receiptRevision : ""), job.origin, job.routeMessage!, "receipt", job.id);
