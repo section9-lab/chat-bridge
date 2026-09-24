@@ -117,7 +117,8 @@ final class MessageRenderingTests: XCTestCase {
             }
             let scroll = try XCTUnwrap(found)
             let document = try XCTUnwrap(scroll.documentView)
-            XCTAssertGreaterThan(document.bounds.height, scroll.contentView.bounds.height * 2)
+            XCTAssertGreaterThan(document.bounds.height, scroll.contentView.bounds.height * 2,
+                                 "The full message must lay out in the \(workspace ? "dashboard" : "panel")")
             XCTAssertGreaterThan(document.visibleRect.minY, 100, "Text growth must scroll even when message count and ID stay the same")
             XCTAssertEqual(service.state.messages.map(\.id), ["stream"])
         }

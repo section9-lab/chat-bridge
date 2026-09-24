@@ -37,6 +37,7 @@ final class GrowthDiagnosticsTests: XCTestCase {
                                          width: workspace ? 720 : 380, height: 500)
             defer { window.close() }
             try await Task.sleep(nanoseconds: 200_000_000)
+            report("\(os) chatview-\(workspace ? "workspace" : "floating") before", content)
             service.state.messages[0].text = long
             for ms in [300, 1500] {
                 try await Task.sleep(nanoseconds: UInt64(ms) * 1_000_000)
