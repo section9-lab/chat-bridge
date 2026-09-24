@@ -1422,7 +1422,7 @@ export class BridgeCore {
       this.db.transaction(() => {
         for (const { completed, ...message } of pending.values()) {
           this.record("message", message.id, message);
-          if (completed && deliver && job.origin.kind !== "desktop") this.enqueueReply(message.id, job.origin, message.text, "assistant", job.id);
+          if (completed && deliver && job.origin.kind !== "desktop") this.enqueueReply(message.id, job.origin, this.signed(job.target.agent, message.text), "assistant", job.id);
         }
       })();
       pending.clear(); this.changed();
@@ -1523,9 +1523,9 @@ export class BridgeCore {
         for (const [role, text] of [["user", job.text], ...(messages.size ? [] : [["assistant", result.text]])]) {
           const id = job.id + ":" + role;
           this.record("message", id, { id, sessionId: session.id, role, text, createdAt: new Date().toISOString(),
-            ...(role === "user" ? { attachments: job.attachments } : { replyTo: this.quote(job.id + ":user", job.text) }) });
+            ...(role === "user" ? { attachments: job.attachments, source: job.origin.kind } : { replyTo: this.quote(job.id + ":user", job.text) }) });
         }
-        if (!messages.size) this.enqueueReply(job.id, job.origin, (job.error ? job.id + " · " + job.error + "\n" : "") + result.text, "final", job.id);
+        if (!messages.size) this.enqueueReply(job.id, job.origin, this.signed(job.target.agent, (job.error ? job.id + " · " + job.error + "\n" : "") + result.text), "final", job.id);
         else if (job.error && job.origin.kind !== "desktop") this.enqueueReply(job.id + ":status", job.origin, job.error, "status", job.id);
       })();
     } catch (error) {

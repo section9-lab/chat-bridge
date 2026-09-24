@@ -41,10 +41,10 @@ test("public text updates one bubble before completion and sends completed segme
     assert.ok(changes <= 3, "token bursts are coalesced instead of writing/publishing once per token");
     assert.equal(f.core.outbox().filter((entry) => entry.kind === "assistant").length, 0);
     f.update("progress", "检查完毕", true); f.update("progress", "检查完毕", true);
-    assert.deepEqual(f.core.outbox().filter((entry) => entry.kind === "assistant").map((entry) => entry.text), ["检查完毕"]);
+    assert.deepEqual(f.core.outbox().filter((entry) => entry.kind === "assistant").map((entry) => entry.text), ["🤖 Codex\n检查完毕"]);
     f.update("answer", "完成", true); f.finish(); await run;
     assert.deepEqual(f.core.state().messages.map((message) => message.text), ["task", "检查完毕", "完成"]);
-    assert.deepEqual(f.core.outbox().filter((entry) => ["assistant", "final"].includes(entry.kind!)).map((entry) => entry.text), ["检查完毕", "完成"]);
+    assert.deepEqual(f.core.outbox().filter((entry) => ["assistant", "final"].includes(entry.kind!)).map((entry) => entry.text), ["🤖 Codex\n检查完毕", "🤖 Codex\n完成"]);
   } finally { f.close(); }
 });
 

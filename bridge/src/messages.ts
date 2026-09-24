@@ -32,3 +32,20 @@ export function splitReply(text: string): string[] {
   if (current) parts.push(current);
   return parts.length ? parts : ["（空回复）"];
 }
+
+// iMessage shows text as is, so an agent's Markdown would arrive as raw ** and ``` marks.
+export function plainText(markdown: string): string {
+  const out: string[] = [];
+  let fenced = false;
+  for (const line of markdown.split("\n")) {
+    if (/^\s*(?:```|~~~)/.test(line)) { fenced = !fenced; continue; }
+    if (fenced) { out.push(line); continue; }
+    out.push(line
+      .replace(/^(\s{0,3})#{1,6}\s+/, "$1")
+      .replace(/!\[([^\]]*)\]\([^)\s]+\)/g, "$1")
+      .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, label: string, url: string) => label === url ? url : label + "（" + url + "）")
+      .replace(/(\*\*|__)(?=\S)(.+?)(?<=\S)\1/g, "$2")
+      .replace(/`([^`\n]+)`/g, "$1"));
+  }
+  return out.join("\n");
+}

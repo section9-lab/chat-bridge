@@ -3,6 +3,7 @@ import { BridgeError, type BridgeCore, type ChannelEvent, type IMessageConfigura
 import { openIMessageSource, sendIMessageNotice, type IMessageSource, type MessageCursor } from "./imessage-source.js";
 import { OutboxDispatcher } from "./delivery.js";
 import { attachmentBytes } from "./outputs.js";
+import { plainText } from "./messages.js";
 export type IMessageState = { status: string; connected: boolean; bound: boolean; email?: string; phone?: string;
   message?: string };
 export class IMessageController {
@@ -30,7 +31,7 @@ export class IMessageController {
         else if (entry.attachment) {
           attachmentBytes(entry.attachment);
           await this.source!.send(entry.origin.peerId, "", entry.attachment.path);
-        } else await this.source!.send(entry.origin.peerId, entry.text);
+        } else await this.source!.send(entry.origin.peerId, plainText(entry.text));
       });
   }
   private update(patch: Partial<IMessageState>): void { this.state = { ...this.state, ...patch }; this.changed(); }

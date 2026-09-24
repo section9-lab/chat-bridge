@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Actions, Button, Card, CardText } from "chat";
-import { renderCard, splitReply } from "../src/messages.js";
+import { plainText, renderCard, splitReply } from "../src/messages.js";
 import { sealContext, openContext } from "../src/secrets.js";
 
 test("a shared card keeps command actions in text-only channels", () => {
@@ -35,4 +35,10 @@ test("encrypted context is authenticated and scoped to the exact account and own
   assert.throws(() => openContext(encrypted, key, "bot:stranger"));
   assert.throws(() => openContext(encrypted.slice(0, -4) + "AAAA", key, "bot:owner"));
   assert.throws(() => sealContext("secret", "invalid-key", "bot:owner"));
+});
+
+test("iMessage text drops Markdown syntax but keeps its content", () => {
+  const reply = "刚检查过：**ChatBridge 下原来的 `ember-expedition` 目录已不存在**。\n\n## 现在位于\n\n```text\n/Users/jackwang/Documents/GitHub/ember-expedition\n```\n\n详见 [说明](https://example.com/doc)，路径 `a/**b**`。";
+  assert.equal(plainText(reply), "刚检查过：ChatBridge 下原来的 ember-expedition 目录已不存在。\n\n现在位于\n\n/Users/jackwang/Documents/GitHub/ember-expedition\n\n详见 说明（https://example.com/doc），路径 a/b。");
+  assert.equal(plainText("1. 第一步\n- 列表项\n普通文字 2*3=6"), "1. 第一步\n- 列表项\n普通文字 2*3=6");
 });
