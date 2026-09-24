@@ -64,6 +64,8 @@ fastlane/test_output
 # Local bridge builds and runtime data
 node_modules/
 dist/
+build/
+*.log
 .runtime/
 __pycache__/
 *.sqlite
