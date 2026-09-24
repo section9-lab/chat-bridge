@@ -1,10 +1,25 @@
 # 产品展示素材
 
 - [品牌资源](brand/README.md)：应用图标、透明 Logo、来源与生成提示词。
-- [产品演示 GIF](chat-bridge-demo.gif)：1536 × 1024、75 秒、15 fps、无限循环。
-- [高清 MP4](chat-bridge-demo.mp4)：1536 × 1024、75 秒、20 fps，可暂停和跳转。
-- [静态预览](chat-bridge-demo-poster.png)：手持 iPhone，通过微信接收 Codex 的任务结果。
+- [首次启动引导 GIF](chat-bridge-intro.gif)：960 × 623、54 秒、10 fps、无限循环，用于各语言 README 首屏。
+- [引导高清 MP4](chat-bridge-intro.mp4)：1512 × 982、54 秒、30 fps，可暂停和跳转。
+- [引导静态预览](chat-bridge-intro-poster.png)：iMessage 把任务交给 Claude，结果同时出现在 Mac 和手机上。
+- [旧版产品演示 GIF](chat-bridge-demo.gif)：1536 × 1024、75 秒、15 fps、无限循环；README 已改用引导动画，文件保留备用。
+- [旧版高清 MP4](chat-bridge-demo.mp4)：1536 × 1024、75 秒、20 fps，可暂停和跳转。
+- [旧版静态预览](chat-bridge-demo-poster.png)：手持 iPhone，通过微信接收 Codex 的任务结果。
 - [场景素材、分镜与生成提示词](demo/README.md)。
+
+## 首次启动引导动画
+
+应用首次启动时播放的介绍，直接来自产品代码里的 SwiftUI 视图（`Onboarding/IntroView.swift` 与 `IntroDirector.swift` 的时间线），界面为中文。录制脚本在独立窗口里播放它，并只用 ScreenCaptureKit 录这个窗口：不录光标、其他应用和真实桌面，不启动本地服务，也不读取账号。录制版不显示“跳过介绍”按钮；成片从桌面变暗后开始，结尾淡出到黑色，GIF 首尾衔接。
+
+在仓库根目录执行，需 macOS 15 或更新版本、Swift 和 FFmpeg，并为运行脚本的终端开启“屏幕录制”权限。录制期间屏幕会全屏播放约 1 分钟：
+
+```sh
+bash scripts/build-intro-demo.sh
+```
+
+## 旧版产品演示
 
 演示默认使用英文，包括界面、字幕、项目名、消息、回执、选项和键盘文字。使用 AI 生成的 MacBook／手持 iPhone 场景，叠加当前应用原生 SwiftUI 视图的英文文案副本，以及按微信和 iMessage 布局制作的消息动画。所有联系人、项目、任务和回复均为演示数据。没有连接真实微信、iMessage 或 Agent，也没有记录、发送或发布用户的私人消息。它用于介绍产品，不作为端到端通道送达的验收证据。
 

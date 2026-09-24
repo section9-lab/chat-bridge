@@ -12,9 +12,9 @@
 
 ## デモ
 
-<p align="center"><img src="docs/assets/chat-bridge-demo.gif" alt="MacBook で機能とメニューバーからの送信を紹介し、手に持った iPhone の WeChat と iMessage から Codex と Claude に依頼して結果を受け取る" width="1100"></p>
-<p align="center"><a href="docs/assets/chat-bridge-demo.mp4">高画質 MP4 · 一時停止できます</a> · <a href="docs/assets/chat-bridge-demo-poster.png">静止画プレビュー</a></p>
-<p align="center"><sub>75 秒のデモ。Mac のネイティブ画面と合成したデバイスの場面を使用しています。タスクと返信は架空で、実際のアカウントには接続していません。</sub></p>
+<p align="center"><img src="docs/assets/chat-bridge-intro.gif" alt="Chat Bridge の初回起動イントロ。アイコンがメニューバーに収まり、手に持った iPhone から iMessage で Claude に、WeChat で Codex に依頼すると Mac にも各ステップが表示され、最後にメニューバーのパネルから続きを送信する" width="960"></p>
+<p align="center"><a href="docs/assets/chat-bridge-intro.mp4">高画質 MP4 · 一時停止できます</a> · <a href="docs/assets/chat-bridge-intro-poster.png">静止画プレビュー</a></p>
+<p align="center"><sub>アプリの初回起動時に流れる 54 秒のイントロを、ネイティブの SwiftUI 画面から録画しました（画面は中国語）。タスクと返信は架空で、実際のアカウントには接続していません。</sub></p>
 
 ## Mac を離れても、会話の続きを
 

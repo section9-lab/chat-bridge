@@ -12,9 +12,9 @@
 
 ## See it in action
 
-<p align="center"><img src="docs/assets/chat-bridge-demo.gif" alt="Tour Chat Bridge on a MacBook and send from the menu bar, then use WeChat and iMessage on a handheld iPhone to route tasks to Codex and Claude and receive their results" width="1100"></p>
-<p align="center"><a href="docs/assets/chat-bridge-demo.mp4">HD MP4 · pause to explore</a> · <a href="docs/assets/chat-bridge-demo-poster.png">Still preview</a></p>
-<p align="center"><sub>75-second English demo with localized native Mac views and composited device scenes. Tasks and replies are fictional; no live accounts are connected.</sub></p>
+<p align="center"><img src="docs/assets/chat-bridge-intro.gif" alt="Chat Bridge's first-launch intro: the icon settles into the menu bar, a handheld iPhone sends tasks to Claude over iMessage and to Codex over WeChat while the Mac mirrors each step, then a follow-up goes out from the menu bar panel" width="960"></p>
+<p align="center"><a href="docs/assets/chat-bridge-intro.mp4">HD MP4 · pause to explore</a> · <a href="docs/assets/chat-bridge-intro-poster.png">Still preview</a></p>
+<p align="center"><sub>The app's 54-second first-launch intro, recorded from its native SwiftUI views (Chinese UI). Tasks and replies are fictional; no live accounts are connected.</sub></p>
 
 ## Step away from your Mac. Keep the conversation going.
 
@@ -35,7 +35,7 @@ Chat Bridge is a macOS menu bar app that connects WeChat and iMessage to the AI 
 
 With smart routing enabled, Chat Bridge identifies your intended destination. When it cannot decide, it keeps your original message and offers text options. Reply with a number or an option to continue.
 
-A receipt shows exactly where each task goes. In the English demo:
+A receipt shows exactly where each task goes, for example:
 
 ```text
 Codex > Travel > Weekend plan
@@ -80,7 +80,7 @@ Uses each agent's local sign-in and model configuration. Start a conversation in
 - On your Mac, type **@filename** to search and attach local files from inline suggestions; the paperclip on the left opens the same search (up to 10 per message, 50 MiB each). Replies quote the original message. WeChat and iMessage input remains **text only**; incoming voice, images, and attachments are not executed as tasks. Eligible output files can be returned to the originating chat.
 - Messages can trigger file changes, commands, and network access. Codex and Claude Code conversations created or resumed by Bridge use full execution permissions by default. Pair only your own trusted accounts.
 - Conversation state stays on your Mac. Messages are processed by your selected messaging and agent services; smart routing also sends the message and relevant destination context to your configured routing provider.
-- Uncertain sends are not automatically retried or executed again. The live app interface and system receipts are currently primarily Chinese; the demo uses English copy.
+- Uncertain sends are not automatically retried or executed again. The app interface, system receipts, and the intro above are currently primarily Chinese.
 
 ## More
 

@@ -12,9 +12,9 @@
 
 ## 사용 모습
 
-<p align="center"><img src="docs/assets/chat-bridge-demo.gif" alt="MacBook에서 기능과 메뉴 막대 메시지 전송을 살펴본 뒤, 손에 든 iPhone의 WeChat과 iMessage로 Codex 및 Claude에 작업을 전달하고 결과를 받는 데모" width="1100"></p>
-<p align="center"><a href="docs/assets/chat-bridge-demo.mp4">고화질 MP4 · 일시 정지 가능</a> · <a href="docs/assets/chat-bridge-demo-poster.png">정지 화면 미리보기</a></p>
-<p align="center"><sub>75초 데모. 실제 Mac 앱의 네이티브 화면과 합성 기기 장면을 사용했습니다. 작업과 응답은 예시 데이터이며 실제 계정에는 연결하지 않습니다.</sub></p>
+<p align="center"><img src="docs/assets/chat-bridge-intro.gif" alt="Chat Bridge 첫 실행 인트로: 아이콘이 메뉴 막대로 들어가고, 손에 든 iPhone에서 iMessage로 Claude에, WeChat으로 Codex에 작업을 보내면 Mac에도 각 단계가 표시되며, 마지막으로 메뉴 막대 패널에서 후속 요청을 보냅니다" width="960"></p>
+<p align="center"><a href="docs/assets/chat-bridge-intro.mp4">고화질 MP4 · 일시 정지 가능</a> · <a href="docs/assets/chat-bridge-intro-poster.png">정지 화면 미리보기</a></p>
+<p align="center"><sub>앱을 처음 실행할 때 나오는 54초 인트로를 네이티브 SwiftUI 화면에서 녹화했습니다(중국어 화면). 작업과 응답은 예시 데이터이며 실제 계정에는 연결하지 않습니다.</sub></p>
 
 ## Mac을 떠나도 대화는 계속됩니다
 

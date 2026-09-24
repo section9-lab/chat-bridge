@@ -12,9 +12,9 @@
 
 ## Voir la démo
 
-<p align="center"><img src="docs/assets/chat-bridge-demo.gif" alt="Découvrir Chat Bridge sur MacBook, envoyer depuis la barre des menus, puis utiliser WeChat et iMessage sur un iPhone tenu en main pour confier des tâches à Codex et Claude et recevoir leurs résultats" width="1100"></p>
-<p align="center"><a href="docs/assets/chat-bridge-demo.mp4">MP4 HD · lecture avec pause</a> · <a href="docs/assets/chat-bridge-demo-poster.png">Aperçu fixe</a></p>
-<p align="center"><sub>Démonstration de 75 secondes avec les vues natives Mac et des scènes d’appareils compositées. Tâches et réponses fictives, sans connexion à de vrais comptes.</sub></p>
+<p align="center"><img src="docs/assets/chat-bridge-intro.gif" alt="L’introduction de Chat Bridge au premier lancement : l’icône rejoint la barre des menus, un iPhone tenu en main confie une tâche à Claude via iMessage et une autre à Codex via WeChat pendant que le Mac affiche chaque étape, puis une suite part du panneau de la barre des menus" width="960"></p>
+<p align="center"><a href="docs/assets/chat-bridge-intro.mp4">MP4 HD · lecture avec pause</a> · <a href="docs/assets/chat-bridge-intro-poster.png">Aperçu fixe</a></p>
+<p align="center"><sub>L’introduction de 54 secondes affichée au premier lancement, enregistrée depuis les vues SwiftUI natives de l’app (interface en chinois). Tâches et réponses fictives, sans connexion à de vrais comptes.</sub></p>
 
 ## Éloignez-vous du Mac. Poursuivez la conversation.
 

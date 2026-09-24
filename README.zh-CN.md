@@ -12,9 +12,9 @@
 
 ## 看它如何工作
 
-<p align="center"><img src="docs/assets/chat-bridge-demo.gif" alt="先在 MacBook 上浏览功能并从菜单栏发送任务，再手持 iPhone 用微信和 iMessage 经 Chat Bridge 转发给 Codex 与 Claude，接收执行结果" width="1100"></p>
-<p align="center"><a href="docs/assets/chat-bridge-demo.mp4">高清 MP4 · 可暂停查看</a> · <a href="docs/assets/chat-bridge-demo-poster.png">静态预览</a></p>
-<p align="center"><sub>75 秒场景演示 · 原生 Mac 界面与合成设备场景；任务和回复为演示数据，不连接真实账号。</sub></p>
+<p align="center"><img src="docs/assets/chat-bridge-intro.gif" alt="Chat Bridge 首次启动的引导动画：图标落进菜单栏；手持 iPhone 用 iMessage 让 Claude 新建项目、用微信让 Codex 做调研，Mac 同步显示每一步；最后从菜单栏面板继续发送" width="960"></p>
+<p align="center"><a href="docs/assets/chat-bridge-intro.mp4">高清 MP4 · 可暂停查看</a> · <a href="docs/assets/chat-bridge-intro-poster.png">静态预览</a></p>
+<p align="center"><sub>应用首次启动时的 54 秒引导动画，直接录制原生 SwiftUI 界面；任务和回复为演示数据，不连接真实账号。</sub></p>
 
 ## 离开电脑，也能接着聊
 
