@@ -1,0 +1,63 @@
+name: Test macOS
+
+# The app supports macOS 13.5 and later; hosted runners cover macOS 14, 15 and 26.
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  native:
+    name: Native tests (${{ matrix.runner }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            xcode: Xcode_16.2
+          - runner: macos-15
+            xcode: Xcode_16.4
+          - runner: macos-26
+            xcode: ''
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    env:
+      LANG: en_US.UTF-8
+      CHAT_BRIDGE_UI_TESTS: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Select a Swift 6 toolchain
+        env:
+          XCODE: ${{ matrix.xcode }}
+        run: |
+          if [ -n "$XCODE" ] && [ -d "/Applications/$XCODE.app" ]; then
+            echo "DEVELOPER_DIR=/Applications/$XCODE.app/Contents/Developer" >> "$GITHUB_ENV"
+          elif [ -n "$XCODE" ]; then
+            echo "::warning::$XCODE is not on this image; using the default Xcode."
+          fi
+      - name: Show the runner
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+      - name: Configure the native material test environment
+        run: |
+          # Hosted images enable Reduce Transparency; these tests exercise the material itself.
+          defaults write com.apple.universalaccess reduceTransparency -bool false
+      - name: Run the native tests
+        working-directory: apps/macos
+        run: swift test --force-resolved-versions
