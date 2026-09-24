@@ -4,6 +4,12 @@ import XCTest
 @testable import ChatBridge
 
 final class StatusLogoTests: XCTestCase {
+    // Starts the app as a returning user; first-run onboarding has its own tests.
+    override func setUp() {
+        super.setUp()
+        UserDefaults.standard.set(true, forKey: OnboardingCoordinator.completedKey)
+    }
+
     @MainActor
     func testStatusItemHasOneTemplateLogoRegardlessOfPinnedAgents() async throws {
         try withApplication { delegate, button in

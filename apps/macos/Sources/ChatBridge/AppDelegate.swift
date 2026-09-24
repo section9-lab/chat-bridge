@@ -15,6 +15,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var settingsWindow: NSWindow?
     private var localMonitor: Any?
     private var globalMonitor: Any?
+    private lazy var onboarding = OnboardingCoordinator(service: service,
+        statusItemFrame: { [weak self] in self?.statusItem?.button?.window?.frame },
+        completed: { [weak self] in if self?.mainWindow?.isVisible != true { NSApp.setActivationPolicy(.accessory) } },
+        postponed: { [weak self] in self?.showMainWindow() })
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let menu = NSMenu()
@@ -26,6 +30,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let settingsItem = NSMenuItem(title: "设置…", action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
         appMenu.addItem(settingsItem)
+        let onboardingItem = NSMenuItem(title: "显示引导…", action: #selector(openOnboarding), keyEquivalent: "")
+        onboardingItem.target = self
+        appMenu.addItem(onboardingItem)
         appMenu.addItem(.separator())
         let quitItem = NSMenuItem(title: "退出 Chat Bridge", action: #selector(quitApp), keyEquivalent: "q")
         quitItem.target = self
@@ -68,7 +75,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             name: NSApplication.didChangeScreenParametersNotification, object: nil)
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(repositionPanel),
             name: NSWorkspace.didWakeNotification, object: nil)
-        showMainWindow()
+        if OnboardingCoordinator.shouldShow { onboarding.begin() } else { showMainWindow() }
+    }
+    @objc private func openOnboarding() {
+        closeSettings()
+        hidePanel()
+        mainWindow?.orderOut(nil)
+        onboarding.begin()
     }
     @objc private func toggleConversation() { toggleAgent() }
     private func toggleAgent(_ id: String? = nil) {
@@ -173,7 +186,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             window.isReleasedWhenClosed = false
             window.contentView = NSHostingView(rootView: SettingsView(service: service,
                 openAgent: { [weak self] id in self?.toggleAgent(id) },
-                close: { [weak self] in self?.closeSettings() }).ignoresSafeArea())
+                close: { [weak self] in self?.closeSettings() },
+                showOnboarding: { [weak self] in self?.openOnboarding() }).ignoresSafeArea())
             settingsWindow = window
         }
         if let settingsWindow, settingsWindow.sheetParent == nil {

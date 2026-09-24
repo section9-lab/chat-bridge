@@ -65,6 +65,7 @@ struct SettingsView: View {
     @Environment(\.colorScheme) private var colorScheme
     var openAgent: (String) -> Void
     var close: () -> Void
+    var showOnboarding: () -> Void = {}
     @State private var tab = 0
     @State private var rename: [String: String] = [:]
     @State private var loginEnabled = SMAppService.mainApp.status == .enabled
@@ -216,6 +217,7 @@ struct SettingsView: View {
                     .help(reason + version)
             }
             Spacer(minLength: 0)
+            if !agent.comingSoon { enabledToggle(agent) }
             if rename[agent.id] != nil {
                 Button("保存") { saveName(agent) }.buttonStyle(SettingsButtonStyle())
             } else if !agent.comingSoon {
@@ -224,6 +226,18 @@ struct SettingsView: View {
                     .disabled(!service.isRunning || probe?.isAvailable != true)
             }
         }.padding(.vertical, 9)
+    }
+    /// Whether the phone channels and smart routing may use this agent; at least one stays on.
+    private func enabledToggle(_ agent: Agent) -> some View {
+        let enabled = service.state.preferences.enabledAgents
+        return Toggle("手机可用", isOn: Binding(get: { enabled.contains(agent.id) }, set: { on in
+            let next = Agent.all.map(\.id).filter { $0 == agent.id ? on : enabled.contains($0) }
+            if !next.isEmpty { service.preferences(["enabledAgents": next]) }
+        }))
+        .toggleStyle(.switch).controlSize(.mini).labelsHidden()
+        .disabled(!service.isRunning || (enabled == [agent.id]))
+        .help(enabled.contains(agent.id) ? "手机和智能路由可以使用 " + agent.name : "手机和智能路由不会使用 " + agent.name)
+        .accessibilityLabel(agent.name + " 手机可用")
     }
     private func saveName(_ agent: Agent) {
         guard let value = rename[agent.id]?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty, value.count <= 36 else {
@@ -319,6 +333,16 @@ struct SettingsView: View {
                 Text("登录 Mac 后，让 Chat Bridge 在菜单栏随时待命。")
                     .font(.system(size: 12)).foregroundStyle(.secondary)
                 if let loginError { Text(loginError).font(.caption).foregroundStyle(.secondary) }
+            }
+            separator
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("新手引导")
+                    Spacer()
+                    Button("打开引导", action: showOnboarding).buttonStyle(SettingsButtonStyle())
+                }
+                Text("重新播放介绍，再走一遍 Agent、消息通道和路由方式的设置。")
+                    .font(.system(size: 12)).foregroundStyle(.secondary)
             }
             separator
             VStack(alignment: .leading, spacing: 13) {

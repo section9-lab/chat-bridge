@@ -3,6 +3,12 @@ import XCTest
 @testable import ChatBridge
 
 final class AppNavigationTests: XCTestCase {
+    // These tests start the app as a returning user; first-run onboarding has its own tests.
+    override func setUp() {
+        super.setUp()
+        UserDefaults.standard.set(true, forKey: OnboardingCoordinator.completedKey)
+    }
+
     @MainActor
     func testEditingShortcutsUseTheResponderChain() async throws {
         let application = NSApplication.shared

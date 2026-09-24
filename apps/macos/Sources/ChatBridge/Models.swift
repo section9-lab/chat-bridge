@@ -38,6 +38,18 @@ struct Preferences: Decodable {
     var pinned = ["codex", "claude", "cursor"]
     var keepAlive = false
     var names: [String: String] = [:]
+    /// Agents the phone channels and smart routing may use. The Mac app can still open any of them.
+    var enabledAgents = Agent.all.map(\.id)
+    private enum CodingKeys: String, CodingKey { case defaultAgent, pinned, keepAlive, names, enabledAgents }
+    init() {}
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        defaultAgent = try values.decode(String.self, forKey: .defaultAgent)
+        pinned = try values.decode([String].self, forKey: .pinned)
+        keepAlive = try values.decode(Bool.self, forKey: .keepAlive)
+        names = try values.decode([String: String].self, forKey: .names)
+        enabledAgents = try values.decodeIfPresent([String].self, forKey: .enabledAgents) ?? Agent.all.map(\.id)
+    }
 }
 struct Selection: Decodable {
     var agent = "codex"
