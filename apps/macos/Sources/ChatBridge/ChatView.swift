@@ -71,17 +71,21 @@ struct MessageBubble<Content: View>: View {
     var iconSize: CGFloat = 16
     @ViewBuilder var content: Content
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack {
             if user { Spacer(minLength: 44) }
-            if user, let icon = MessageSource.icon(source) {
-                Image(nsImage: icon).resizable().scaledToFit().frame(width: iconSize, height: iconSize)
-                    .foregroundStyle(.secondary).padding(.top, 10)
-                    .help("来自" + MessageSource.name(source)).accessibilityLabel("来自" + MessageSource.name(source))
+            // The icon shares the bubble's width frame so it stays right beside the bubble.
+            // Aligned with the bubble's top-left corner, so tall messages keep it where the eye starts.
+            HStack(alignment: .top, spacing: 6) {
+                if user, let icon = MessageSource.icon(source) {
+                    Image(nsImage: icon).resizable().scaledToFit().frame(width: iconSize, height: iconSize)
+                        .foregroundStyle(.secondary)
+                        .help("来自" + MessageSource.name(source)).accessibilityLabel("来自" + MessageSource.name(source))
+                }
+                content
+                    .padding(.horizontal, 18).padding(.vertical, user ? 10 : 12)
+                    .background(FrostedBubble(user: user))
             }
-            content
-                .padding(.horizontal, 18).padding(.vertical, user ? 10 : 12)
-                .background(FrostedBubble(user: user))
-                .frame(maxWidth: maxWidth, alignment: user ? .trailing : .leading)
+            .frame(maxWidth: maxWidth, alignment: user ? .trailing : .leading)
             if !user { Spacer(minLength: 44) }
         }
     }
