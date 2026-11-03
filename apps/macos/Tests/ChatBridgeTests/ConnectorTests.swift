@@ -3,12 +3,14 @@ import XCTest
 
 final class ConnectorTests: XCTestCase {
     func testConnectorSummaryAndAccountsDecodeFromServiceState() throws {
-        let json = Data(#"{
+        let json = Data("""
+        {
           "preferences":{"defaultAgent":"codex","pinned":[],"keepAlive":false,"names":{},"enabledAgents":["codex"]},
           "selection":{"agent":"codex","mode":"code","version":0},
           "sessions":[],"messages":[],"jobs":[],"historyPartial":true,
           "connectors":{"provider":{"configured":true,"status":"ready"},"connectedCount":1,"attentionCount":0,"availableByAgent":{"codex":1},"toolExecutionEnabled":false}
-        }"#.utf8)
+        }
+        """.utf8)
         let state = try JSONDecoder().decode(BridgeState.self, from: json)
         XCTAssertEqual(state.connectors?.connectedCount, 1)
         XCTAssertEqual(state.connectors?.availableByAgent["codex"], 1)
