@@ -7,7 +7,8 @@ enum KeychainVault {
         "weixin": (account: "weixin-v1", label: "微信"),
         "vercel": (account: "vercel-ai-gateway-v1", label: "Vercel AI Gateway"),
         "openrouter": (account: "openrouter-v1", label: "OpenRouter"),
-        "typesafe": (account: "typesafe-v1", label: "TypeSafe")
+        "typesafe": (account: "typesafe-v1", label: "TypeSafe"),
+        "composio": (account: "composio-v1", label: "Composio")
     ]
     static let methods = credentials.keys.flatMap { provider in
         ["read", "write", "remove"].map { "native.\(provider).credential.\($0)" }
@@ -28,7 +29,8 @@ enum KeychainVault {
         let parts = method.split(separator: ".").map(String.init)
         let provider = parts[1], configuration = credentials[provider]!
         let query = query(account: configuration.account)
-        let validate = provider == "weixin" ? WeixinSecret.validatedData : RoutingSecret.validatedData
+        let validate = provider == "weixin" ? WeixinSecret.validatedData :
+            provider == "composio" ? ConnectorSecret.validatedData : RoutingSecret.validatedData
         switch parts[3] {
         case "read":
             var request = query

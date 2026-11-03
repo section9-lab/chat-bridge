@@ -181,6 +181,52 @@ struct RoutingState: Decodable {
     var verifiedAt: String?
 }
 
+struct ConnectorProviderState: Decodable {
+    var configured = false
+    var status = "unconfigured"
+    var message: String?
+}
+struct ConnectorStateSummary: Decodable {
+    var provider = ConnectorProviderState()
+    var connectedCount = 0
+    var attentionCount = 0
+    var availableByAgent: [String: Int] = [:]
+    var toolExecutionEnabled = false
+}
+struct ConnectorDefinition: Decodable, Identifiable, Hashable {
+    var id: String
+    var slug: String
+    var name: String
+    var description: String
+    var category: String
+    var authSchemes: [String]
+}
+struct ConnectorPolicy: Codable, Equatable {
+    var accountId: String
+    var allowedAgents: [String]
+    var mode: String
+}
+struct ConnectedConnectorAccount: Decodable, Identifiable, Equatable {
+    var id: String
+    var connectorId: String
+    var connectorSlug: String
+    var connectorName: String
+    var label: String?
+    var status: String
+    var createdAt: String?
+    var lastUsedAt: String?
+    var policy: ConnectorPolicy
+}
+struct ConnectorCatalogPage: Decodable {
+    var items: [ConnectorDefinition]
+    var nextCursor: String?
+}
+struct ConnectorLink: Decodable {
+    var attemptId: String
+    var redirectURL: URL
+    var expiresAt: String
+}
+
 struct RoutingProvider: Identifiable {
     let id: String
     let name: String
@@ -278,6 +324,7 @@ struct BridgeState: Decodable {
     var approvals: [ApprovalSummary]?
     var probes: [String: AgentProbe]?
     var routing: RoutingState?
+    var connectors: ConnectorStateSummary?
 }
 struct AgentProbe: Decodable {
     var installed = false

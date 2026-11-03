@@ -32,6 +32,9 @@ final class BridgeService: ObservableObject {
     @Published var routingBusy = false
     @Published var routingError: String?
     @Published var routingNotice: String?
+    @Published var connectorBusy = false
+    @Published var connectorError: String?
+    @Published var connectorNotice: String?
     private var process: Process?
     private var input: Pipe?
     private var output: Pipe?
@@ -333,6 +336,97 @@ final class BridgeService: ObservableObject {
                 lastError = nil
             } catch { lastError = error.localizedDescription }
         }
+    }
+    func connectorProvider() async -> ConnectorProviderState? {
+        do {
+            let value = try await request("connector.provider.get")
+            let result = try JSONDecoder().decode(ConnectorProviderState.self, from: JSONSerialization.data(withJSONObject: value))
+            updateState(try await request("state.get"))
+            connectorError = nil
+            return result
+        } catch { connectorError = channelErrorMessage(error); return nil }
+    }
+    func saveConnectorKey(_ apiKey: String) async -> Bool {
+        guard !connectorBusy else { return false }
+        connectorBusy = true; connectorError = nil; connectorNotice = nil
+        defer { connectorBusy = false }
+        do {
+            _ = try await request("connector.provider.key.save", ["apiKey": apiKey])
+            updateState(try await request("state.get"))
+            connectorNotice = "Composio 已连接，API Key 已保存到钥匙串。"
+            return true
+        } catch { connectorError = channelErrorMessage(error); return false }
+    }
+    func removeConnectorKey() async -> Bool {
+        guard !connectorBusy else { return false }
+        connectorBusy = true; connectorError = nil; connectorNotice = nil
+        defer { connectorBusy = false }
+        do {
+            _ = try await request("connector.provider.key.remove")
+            updateState(try await request("state.get"))
+            connectorNotice = "Composio API Key 已从钥匙串移除。"
+            return true
+        } catch { connectorError = channelErrorMessage(error); return false }
+    }
+    func connectorCatalog(search: String = "", cursor: String? = nil) async -> ConnectorCatalogPage? {
+        var params: [String: Any] = ["search": search, "limit": 100]
+        if let cursor { params["cursor"] = cursor }
+        do {
+            let value = try await request("connector.catalog.list", params)
+            connectorError = nil
+            return try JSONDecoder().decode(ConnectorCatalogPage.self, from: JSONSerialization.data(withJSONObject: value))
+        } catch { connectorError = channelErrorMessage(error); return nil }
+    }
+    func connectorAccounts() async -> [ConnectedConnectorAccount]? {
+        do {
+            let value = try await request("connector.accounts.list")
+            connectorError = nil
+            updateState(try await request("state.get"))
+            return try JSONDecoder().decode([ConnectedConnectorAccount].self, from: JSONSerialization.data(withJSONObject: value))
+        } catch { connectorError = channelErrorMessage(error); return nil }
+    }
+    func beginConnectorLink(_ slug: String) async -> ConnectorLink? {
+        guard !connectorBusy else { return nil }
+        connectorBusy = true; connectorError = nil; connectorNotice = nil
+        defer { connectorBusy = false }
+        do {
+            let value = try await request("connector.account.link", ["connectorSlug": slug,
+                "callbackURL": "chatbridge-connectors://complete"])
+            return try JSONDecoder().decode(ConnectorLink.self, from: JSONSerialization.data(withJSONObject: value))
+        } catch { connectorError = channelErrorMessage(error); return nil }
+    }
+    func completeConnectorLink() async -> [ConnectedConnectorAccount]? {
+        guard !connectorBusy else { return nil }
+        connectorBusy = true; connectorError = nil
+        defer { connectorBusy = false }
+        do {
+            let value = try await request("connector.account.complete")
+            let accounts = try JSONDecoder().decode([ConnectedConnectorAccount].self,
+                from: JSONSerialization.data(withJSONObject: value))
+            updateState(try await request("state.get"))
+            connectorNotice = "账号连接完成。请选择允许访问的 Agent。"
+            return accounts
+        } catch { connectorError = channelErrorMessage(error); return nil }
+    }
+    func updateConnectorPolicy(_ policy: ConnectorPolicy) async -> ConnectorPolicy? {
+        do {
+            let value = try await request("connector.policy.update", ["accountId": policy.accountId,
+                "allowedAgents": policy.allowedAgents, "mode": policy.mode])
+            let result = try JSONDecoder().decode(ConnectorPolicy.self, from: JSONSerialization.data(withJSONObject: value))
+            updateState(try await request("state.get"))
+            connectorError = nil
+            return result
+        } catch { connectorError = channelErrorMessage(error); return nil }
+    }
+    func disconnectConnectorAccount(_ id: String, revoke: Bool = true) async -> Bool {
+        guard !connectorBusy else { return false }
+        connectorBusy = true; connectorError = nil; connectorNotice = nil
+        defer { connectorBusy = false }
+        do {
+            updateState(try await request("connector.account.disconnect", ["accountId": id, "revoke": revoke]))
+            connectorNotice = "账号已断开。"
+            return true
+        } catch { connectorError = channelErrorMessage(error); return false }
     }
     func weixin(_ action: String, params: [String: Any] = [:]) {
         guard !channelBusy, ["start", "cancel", "confirm", "verify", "reconnect", "disconnect"].contains(action) else { return }

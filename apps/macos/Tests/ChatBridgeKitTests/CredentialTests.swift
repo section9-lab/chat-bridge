@@ -15,6 +15,12 @@ final class CredentialTests: XCTestCase {
             XCTAssertThrowsError(try RoutingSecret.validatedData(data))
         }
     }
+    func testConnectorCredentialKeepsOnlyTheAPIKey() throws {
+        let data = try JSONSerialization.data(withJSONObject: ["apiKey": "cmp_fixture", "endpoint": "https://untrusted.test"])
+        let result = try ConnectorSecret.validatedData(data)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: result) as? [String: String])
+        XCTAssertEqual(object, ["apiKey": "cmp_fixture"])
+    }
 
     private var valid: [String: String] {
         ["accountId": "bot", "ownerId": "owner", "token": "private-token",

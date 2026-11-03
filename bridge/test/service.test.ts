@@ -49,6 +49,31 @@ test("enabled agents are validated, saved through IPC and published with the sta
   } finally { f.close(); }
 });
 
+test("connector credentials stay in the native vault and publish only summary state", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "chat-bridge-connectors-"));
+  const ab = new PassThrough(), ba = new PassThrough();
+  let saved: unknown;
+  const native = new RPCPeer(ba, ab, {
+    "native.composio.credential.read": () => saved ?? null,
+    "native.composio.credential.write": (params: any) => { saved = params.credential; },
+    "native.composio.credential.remove": () => { saved = undefined; },
+  });
+  const fetchFn = (async (url: string | URL | Request) => new Response(JSON.stringify(String(url).includes("connected_accounts") ?
+    { items: [] } : { items: [{ slug: "github", name: "GitHub" }] }), { status: 200, headers: { "content-type": "application/json" } })) as typeof fetch;
+  const service = createService(ab, ba, join(directory, "bridge.sqlite"), { fetchFn });
+  try {
+    await native.call("connector.provider.key.save", { apiKey: "cmp_fixture" });
+    assert.deepEqual(saved, { apiKey: "cmp_fixture" });
+    const state = await native.call<any>("state.get");
+    assert.equal(state.connectors.provider.configured, true);
+    assert.equal(state.connectors.connectedCount, 0);
+    assert.equal(state.connectors.toolExecutionEnabled, false);
+    assert.equal(JSON.stringify(state).includes("cmp_fixture"), false);
+    await native.call("connector.provider.key.remove", {});
+    assert.equal(saved, undefined);
+  } finally { native.close(); service.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
 test("IPC publishes growing Markdown beyond 1000 characters and bounds large history snapshots", async () => {
   const directory = mkdtempSync(join(tmpdir(), "bridge-stream-ipc-"));
   const ab = new PassThrough(), ba = new PassThrough(), native = new RPCPeer(ba, ab, {});

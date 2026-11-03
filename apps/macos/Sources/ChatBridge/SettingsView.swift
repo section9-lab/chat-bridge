@@ -65,6 +65,7 @@ struct SettingsView: View {
     @Environment(\.colorScheme) private var colorScheme
     var openAgent: (String) -> Void
     var close: () -> Void
+    var showConnectors: () -> Void = {}
     var showOnboarding: () -> Void = {}
     @State private var tab = 0
     @State private var rename: [String: String] = [:]
@@ -333,6 +334,18 @@ struct SettingsView: View {
                 Text("登录 Mac 后，让 Chat Bridge 在菜单栏随时待命。")
                     .font(.system(size: 12)).foregroundStyle(.secondary)
                 if let loginError { Text(loginError).font(.caption).foregroundStyle(.secondary) }
+            }
+            separator
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("连接器")
+                    Spacer()
+                    Button("管理连接器…", action: showConnectors).buttonStyle(SettingsButtonStyle())
+                }
+                Text(service.state.connectors?.provider.configured == true ?
+                    "已连接 \(service.state.connectors?.connectedCount ?? 0) 个账号。凭据保存在钥匙串中；Agent 工具执行仍在验收。" :
+                    "连接外部服务并预先配置 Agent 访问范围。")
+                    .font(.system(size: 12)).foregroundStyle(.secondary)
             }
             separator
             VStack(alignment: .leading, spacing: 10) {

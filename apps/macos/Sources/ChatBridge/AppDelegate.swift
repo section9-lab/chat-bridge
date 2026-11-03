@@ -26,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var panel: ChatPanel?
     private var mainWindow: NSWindow?
     private var settingsWindow: NSWindow?
+    private var connectorWindow: NSWindow?
     private var localMonitor: Any?
     private var globalMonitor: Any?
     private lazy var onboarding = OnboardingCoordinator(service: service,
@@ -49,6 +50,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let settingsItem = NSMenuItem(title: "设置…", action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
         appMenu.addItem(settingsItem)
+        let connectorsItem = NSMenuItem(title: "连接器…", action: #selector(openConnectors), keyEquivalent: "")
+        connectorsItem.target = self
+        appMenu.addItem(connectorsItem)
         let onboardingItem = NSMenuItem(title: "显示引导…", action: #selector(openOnboarding), keyEquivalent: "")
         onboardingItem.target = self
         appMenu.addItem(onboardingItem)
@@ -175,6 +179,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             window.contentMinSize = NSSize(width: 800, height: 580)
             window.contentView = NSHostingView(rootView: MainView(service: service,
                 settings: { [weak self] in self?.showSettings() },
+                connectors: { [weak self] in self?.showConnectorCenter() },
                 openFloating: { [weak self] in self?.showFloatingConversation() }).ignoresSafeArea())
             window.center()
             desktop.prepare(window)
@@ -210,6 +215,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             window.contentView = NSHostingView(rootView: SettingsView(service: service,
                 openAgent: { [weak self] id in self?.toggleAgent(id) },
                 close: { [weak self] in self?.closeSettings() },
+                showConnectors: { [weak self] in self?.closeSettings(); self?.showConnectorCenter() },
                 showOnboarding: { [weak self] in self?.openOnboarding() }).ignoresSafeArea())
             desktop.prepare(window)
             settingsWindow = window
@@ -224,20 +230,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         settingsWindow.sheetParent?.endSheet(settingsWindow)
         settingsWindow.orderOut(nil)
     }
+    func showConnectorCenter() {
+        hidePanel()
+        desktop.setActivationPolicy(.regular)
+        if connectorWindow == nil {
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 980, height: 680),
+                styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+            window.title = "连接器"
+            window.titlebarSeparatorStyle = .automatic
+            window.isReleasedWhenClosed = false
+            window.delegate = self
+            window.contentMinSize = NSSize(width: 820, height: 600)
+            window.contentView = NSHostingView(rootView: ConnectorCenterView(service: service))
+            window.center()
+            desktop.prepare(window)
+            connectorWindow = window
+        }
+        if connectorWindow?.isMiniaturized == true { connectorWindow?.deminiaturize(nil) }
+        connectorWindow?.makeKeyAndOrderFront(nil)
+        desktop.activate()
+    }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func windowWillClose(_ notification: Notification) {
-        guard let window = notification.object as? NSWindow, window === mainWindow else { return }
-        closeSettings()
-        desktop.setActivationPolicy(.accessory)
+        guard let window = notification.object as? NSWindow else { return }
+        if window === mainWindow { closeSettings() }
+        if window === mainWindow || window === connectorWindow {
+            let otherVisible = window === mainWindow ? connectorWindow?.isVisible == true : mainWindow?.isVisible == true
+            if !otherVisible { desktop.setActivationPolicy(.accessory) }
+        }
     }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         showMainWindow()
         return true
     }
     @objc private func openSettings() { showSettings() }
+    @objc private func openConnectors() { showConnectorCenter() }
     @objc private func openMain() { showMainWindow() }
     @objc private func quitApp() {
         closeSettings()
+        connectorWindow?.close()
         NSApp.terminate(nil)
     }
     func applicationWillTerminate(_ notification: Notification) {

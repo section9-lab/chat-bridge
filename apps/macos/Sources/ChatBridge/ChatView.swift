@@ -99,6 +99,7 @@ struct ChatView: View {
     var close: () -> Void
     var workspace = false
     var openDashboard: () -> Void = {}
+    var connectors: () -> Void = {}
     var openFloating: () -> Void = {}
     var dashboardTrailingInset: CGFloat = 1
     @State private var composerFocusRequest = 0
@@ -164,6 +165,18 @@ struct ChatView: View {
                     .lineLimit(1)
             }
             Spacer()
+            Button(action: connectors) {
+                HStack(spacing: 5) {
+                    Image(systemName: "link")
+                    let count = service.state.connectors?.availableByAgent[service.viewedAgent] ?? 0
+                    if service.state.connectors?.toolExecutionEnabled == true, count > 0 {
+                        Text("\(count)").font(.caption.monospacedDigit())
+                    }
+                }
+                .foregroundStyle(.secondary).frame(minWidth: 30, minHeight: 30)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain).help("管理连接器").accessibilityLabel("管理连接器")
             switchButton(systemName: "arrow.down.left", label: "收起到菜单栏会话", action: openFloating)
         }
         .padding(.horizontal, 22).padding(.vertical, 18)

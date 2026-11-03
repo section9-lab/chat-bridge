@@ -10,6 +10,7 @@ import { CodexRuntime } from "./codex.js";
 import { ClaudeRuntime } from "./claude.js";
 import { ACPRuntime, acpAgentIDs } from "./acp.js";
 import { JevGateway, routingProviders, type RoutingProvider, type RoutingSettings } from "./routing.js";
+import { ComposioConnectorController } from "./connectors.js";
 
 export function createService(input: Readable, output: Writable, databasePath: string,
   dependencies: { fetchFn?: typeof fetch; routingNow?: () => number; iMessageSource?: () => IMessageSource; codex?: AgentAdapter; claude?: AgentAdapter;
@@ -36,6 +37,14 @@ export function createService(input: Readable, output: Writable, databasePath: s
     onExecution: (error) => { if (!closed) core.recordAgentExecution(id, error); },
   });
   const core = new BridgeCore(databasePath, agents);
+  const connectors = new ComposioConnectorController({
+    read: () => peer.call("native.composio.credential.read", {}),
+    write: async (credential) => { await peer.call("native.composio.credential.write", { credential }); },
+    remove: async () => { await peer.call("native.composio.credential.remove", {}); },
+  }, {
+    userID: () => core.connectorUserID(), policies: () => core.connectorPolicies(),
+    setPolicy: (policy) => core.setConnectorPolicy(policy), removePolicy: (accountId) => core.removeConnectorPolicy(accountId),
+  }, dependencies.fetchFn, () => { if (!closed) peer.event("state.changed", snapshot()); });
   // A genuinely fresh install tries Jev by default; anyone who has ever saved a routing
   // preference (including an explicit "off") keeps exactly what they chose.
   if (!core.routingConfiguredOnce()) core.setRoutingSettings({ mode: "auto" });
@@ -70,7 +79,8 @@ export function createService(input: Readable, output: Writable, databasePath: s
     const selected = state.sessions.find((session) => session.id === state.selection.sessionId);
     const sessions = state.sessions.filter((session) => session.id !== selected?.id).slice(-99);
     if (selected) sessions.push(selected);
-    const snapshot = { ...state, routing: { ...core.routingSettings(), ...routing().status() }, historyPartial: true, channels: { weixin: channels.state, imessage: imessage.state },
+    const snapshot = { ...state, routing: { ...core.routingSettings(), ...routing().status() }, connectors: connectors.summary(),
+      historyPartial: true, channels: { weixin: channels.state, imessage: imessage.state },
       deliveries: core.outbox().filter((entry) => entry.origin.kind !== "desktop").slice(-100).reverse()
         .map(({ id, jobId, status, kind, error }) => ({ id, jobId, status, kind, error })),
       sessions: sessions.map((session) => ({ ...session, title: session.title.slice(0, 128) })),
@@ -139,6 +149,19 @@ export function createService(input: Readable, output: Writable, databasePath: s
     if (receipt.jobId) launchJob(receipt.jobId);
     return snapshot();
   });
+  register("connector.provider.get", async () => { await connectors.restore(); return connectors.status(); });
+  register("connector.provider.key.save", (params) => connectors.save(object(params).apiKey));
+  register("connector.provider.key.remove", () => connectors.remove());
+  register("connector.catalog.list", (params) => connectors.catalog(object(params)));
+  register("connector.accounts.list", async () => { await connectors.restore(); return connectors.listAccounts(); });
+  register("connector.account.link", (params) => {
+    const request = object(params); return connectors.link(request.connectorSlug, request.callbackURL);
+  });
+  register("connector.account.complete", () => connectors.complete());
+  register("connector.account.disconnect", async (params) => {
+    const request = object(params); await connectors.disconnect(request.accountId, request.revoke === true); return snapshot();
+  });
+  register("connector.policy.update", (params) => connectors.updatePolicy(params));
   register("catalog.get", async (params) => {
     const request = object(params), agent = text(request.agent, 36), offset = request.offset ?? 0;
     if (!agentIDs.includes(agent as typeof agentIDs[number]) || !Number.isSafeInteger(offset) || (offset as number) < 0 ||
@@ -242,6 +265,7 @@ export function createService(input: Readable, output: Writable, databasePath: s
     start() {
       if (started || closed) return;
       started = true;
+      void connectors.restore();
       void core.probeAgents();
       probeTimer = setInterval(() => { void core.probeAgents(); }, 30_000);
       core.sweepExpiredRoutes();

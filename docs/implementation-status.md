@@ -6,6 +6,8 @@
 
 ## 当前实现
 
+2026-11-03 连接器阶段 A：新增 Composio BYOK、钥匙串保存、动态连接器目录、系统 Web 认证、账号断开、按 Agent 授权与操作策略，以及符合 macOS HIG 的独立三栏连接器窗口。Agent 工具搜索和执行仍处于后续阶段，当前不会把连接器账号直接暴露给 Agent。设计与后续门槛见 [连接器设计方案](connectors-design.md)。
+
 | 部分 | 实际行为 | 验证边界 |
 | --- | --- | --- |
 | 协议与路由 | 通道 → 路由 → AgentAdapter；默认确定性路由，可选 Jev 语义路由（Vercel／OpenRouter／TypeSafe 官方，用户自备 Key）；Codex 使用 App Server、Claude Code 使用官方 SDK，其余四个使用官方 ACP SDK。 | 协议、固定入口、未知方法及能力门控测试。 |

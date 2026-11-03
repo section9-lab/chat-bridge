@@ -14,5 +14,10 @@
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSAppleEventsUsageDescription</key><string>Chat Bridge 通过 Messages 发送你发起的配对请求，以及已绑定通道的任务回复。</string>
+    <key>CFBundleURLTypes</key>
+    <array><dict>
+        <key>CFBundleURLName</key><string>com.chatbridge.connectors</string>
+        <key>CFBundleURLSchemes</key><array><string>chatbridge-connectors</string></array>
+    </dict></array>
     <key>NSPrincipalClass</key><string>NSApplication</string>
 </dict></plist>

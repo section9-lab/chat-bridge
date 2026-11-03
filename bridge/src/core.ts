@@ -29,6 +29,7 @@ export type Origin = {
   accountId: string; peerId: string; eventId: string; fromSelf?: boolean; bindingEpoch?: number;
 };
 export type Preferences = { defaultAgent: string; pinned: string[]; keepAlive: boolean; names: Record<string, string>; enabledAgents: string[] };
+export type ConnectorPolicy = { accountId: string; allowedAgents: string[]; mode: "read-only" | "confirm-writes" | "allow-writes" };
 export type Job = {
   id: string; origin: Origin; target: Target; text: string; status: string;
   createdAt: string; queuedAt?: string; error?: string; sessionId?: string; turnId?: string; externalControl?: boolean;
@@ -202,6 +203,16 @@ export class BridgeCore {
   private preferences(): Preferences {
     const stored = this.get<Preferences>("preferences")!;
     return { ...stored, enabledAgents: Array.isArray(stored.enabledAgents) && stored.enabledAgents.length ? stored.enabledAgents : [...agentIDs] };
+  }
+  connectorUserID(): string {
+    let id = this.get<string>("connectorUserID");
+    if (!id) { id = "cb_" + randomUUID().replaceAll("-", ""); this.put("connectorUserID", id); }
+    return id;
+  }
+  connectorPolicies(): ConnectorPolicy[] { return this.list<ConnectorPolicy>("connectorPolicy"); }
+  setConnectorPolicy(policy: ConnectorPolicy): void { this.record("connectorPolicy", policy.accountId, policy); this.changed(); }
+  removeConnectorPolicy(accountId: string): void {
+    this.db.prepare("DELETE FROM records WHERE kind=? AND id=?").run("connectorPolicy", accountId); this.changed();
   }
   private agentEnabled(agent: string): boolean { return this.preferences().enabledAgents.includes(agent); }
   // Phone channels only reach enabled agents; the Mac app may still use any agent it explicitly selects.
