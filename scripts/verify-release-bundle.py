@@ -29,11 +29,15 @@ assert lock["version"] == lock["packages"][""]["version"] == version["version"],
 
 required = ["MacOS/ChatBridge", "Resources/runtime/node", "Resources/runtime/LICENSE",
             "Resources/AppIcon.icns", "Resources/Assets.car", "Resources/LICENSE",
-            "Resources/ChatBridge_ChatBridge.bundle/Contents/Resources/AgentIcons/codex-light.png",
             "Resources/service/dist/src/main.js",
             "Resources/service/node_modules/better-sqlite3/build/Release/better_sqlite3.node"]
 for name in required:
     assert (contents / name).is_file(), f"Missing bundle resource: {name}"
+icon_paths = [
+    contents / "Resources/ChatBridge_ChatBridge.bundle/Contents/Resources/AgentIcons/codex-light.png",
+    contents / "Resources/ChatBridge_ChatBridge.bundle/AgentIcons/codex-light.png",
+]
+assert any(path.is_file() for path in icon_paths), "Missing bundle resource: AgentIcons/codex-light.png"
 
 # Include every Mach-O dependency, not only the main executable.
 magic = {bytes.fromhex(value) for value in ("cffaedfe", "cefaedfe", "feedface", "feedfacf",
