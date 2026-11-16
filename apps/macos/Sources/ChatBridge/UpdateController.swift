@@ -1,5 +1,6 @@
 import AppKit
 import CryptoKit
+import Darwin
 import Foundation
 
 struct UpdateRelease: Equatable {
@@ -151,6 +152,7 @@ private func defaultUpdateFetch(_ request: URLRequest) async throws -> (Data, HT
 final class UpdateController: ObservableObject {
     @Published private(set) var status: UpdateStatus = .idle
     var onChange: ((UpdateStatus) -> Void)?
+    var onBeforeQuit: (() -> Void)?
 
     private let checker: UpdateChecker
     private let fetch: (URLRequest) async throws -> (Data, HTTPURLResponse)
@@ -218,7 +220,10 @@ final class UpdateController: ObservableObject {
                 try await installer.install(release)
                 setStatus(.installing(release))
                 try? await Task.sleep(nanoseconds: 500_000_000)
+                onBeforeQuit?()
                 NSApp.terminate(nil)
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                exit(0)
             } catch {
                 installing = false
                 setStatus(.failed(error.localizedDescription))
@@ -308,7 +313,13 @@ struct UpdateInstaller {
         #!/bin/bash
         set -euo pipefail
         parent="$1"; target="$2"; staged="$3"; temp="$4"
-        while kill -0 "$parent" 2>/dev/null; do sleep 0.2; done
+        for ((i=0; i<300; i++)); do kill -0 "$parent" 2>/dev/null || break; sleep 0.2; done
+        if kill -0 "$parent" 2>/dev/null; then
+          kill -TERM "$parent" 2>/dev/null || true
+          sleep 1
+          kill -KILL "$parent" 2>/dev/null || true
+        fi
+        pkill -TERM -P "$parent" 2>/dev/null || true
         backup="${target}.old"
         rm -rf "$backup"
         mv "$target" "$backup"

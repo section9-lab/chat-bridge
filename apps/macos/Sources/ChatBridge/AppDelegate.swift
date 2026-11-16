@@ -86,6 +86,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         button.sendAction(on: .leftMouseUp)
         service.start()
         updates.onChange = { [weak self] status in self?.updateMenuItem(status) }
+        updates.onBeforeQuit = { [weak self] in self?.service.stop() }
         updates.start()
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .keyDown]) { [weak self] event in
             guard let self else { return event }
