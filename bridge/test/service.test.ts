@@ -25,9 +25,9 @@ function fixture() {
 test("local service persists display settings through its IPC API", async () => {
   const f = fixture();
   try {
-    await f.native.call("preferences.update", { pinned: ["claude", "cursor"], keepAlive: true });
+    await f.native.call("preferences.update", { pinned: ["claude", "pi"], keepAlive: true });
     const state = await f.native.call<{ preferences: { pinned: string[]; keepAlive: boolean } }>("state.get");
-    assert.deepEqual(state.preferences.pinned, ["claude", "cursor"]);
+    assert.deepEqual(state.preferences.pinned, ["claude", "pi"]);
     assert.equal(state.preferences.keepAlive, true);
   } finally { f.close(); }
 });
@@ -36,14 +36,14 @@ test("enabled agents are validated, saved through IPC and published with the sta
   const f = fixture();
   try {
     const initial = await f.native.call<{ preferences: { enabledAgents: string[] } }>("state.get");
-    assert.deepEqual(initial.preferences.enabledAgents, ["codex", "claude", "cursor", "grok", "opencode", "hermes"]);
+    assert.deepEqual(initial.preferences.enabledAgents, ["codex", "claude", "pi", "hermes"]);
     for (const enabledAgents of [[], ["codex", "codex"], ["codex", "unknown"]]) {
       await assert.rejects(f.native.call("preferences.update", { enabledAgents }), { code: "INVALID_INPUT" });
     }
-    const state = await f.native.call<{ preferences: { enabledAgents: string[]; defaultAgent: string } }>("preferences.update", { enabledAgents: ["cursor", "claude"] });
-    assert.deepEqual(state.preferences.enabledAgents, ["claude", "cursor"]);
+    const state = await f.native.call<{ preferences: { enabledAgents: string[]; defaultAgent: string } }>("preferences.update", { enabledAgents: ["pi", "claude"] });
+    assert.deepEqual(state.preferences.enabledAgents, ["claude", "pi"]);
     assert.equal(state.preferences.defaultAgent, "claude");
-    assert.deepEqual((await f.native.call<typeof state>("state.get")).preferences.enabledAgents, ["claude", "cursor"]);
+    assert.deepEqual((await f.native.call<typeof state>("state.get")).preferences.enabledAgents, ["claude", "pi"]);
   } finally { f.close(); }
 });
 

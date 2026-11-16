@@ -2,8 +2,8 @@ import XCTest
 @testable import ChatBridge
 
 final class AgentSelectionTests: XCTestCase {
-    func testAllSixAgentsHaveRuntimeIntegration() {
-        XCTAssertEqual(Agent.all.filter { !$0.comingSoon }.map(\.id), ["codex", "claude", "cursor", "grok", "opencode", "hermes"])
+    func testAllVisibleAgentsHaveRuntimeIntegration() {
+        XCTAssertEqual(Agent.all.filter { !$0.comingSoon }.map(\.id), ["codex", "claude", "pi", "hermes"])
     }
     func testExecutionFailureIsVisibleWhileTheConnectedAgentAllowsRetry() throws {
         let json = Data(#"{"installed":true,"ready":true,"status":"ready","reason":"Connected","executionError":"模型服务拒绝请求"}"#.utf8)

@@ -27,7 +27,7 @@ function fixture() {
     sendTurn: async () => { state.sends++; return { turnId: "turn", text: "完成" }; },
   };
   const service = createService(ab, ba, join(directory, "bridge.sqlite"), { codex: adapter, claude: adapter,
-    agents: { cursor: adapter, grok: adapter, opencode: adapter, hermes: adapter } } as any);
+    agents: { hermes: adapter }, pi: adapter } as any);
   const snapshots: any[] = [];
   native.onEvent = (method, snapshot) => { if (method === "state.changed") snapshots.push(snapshot); };
   return { native, service, adapter, state, snapshots,
@@ -145,11 +145,11 @@ test("availability recovery preserves the selected agent and leaves previously h
   } finally { f.close(); }
 });
 
-test("all six agents can be selected and receive desktop or bound-channel messages", async () => {
+test("all visible agents can be selected and receive desktop or bound-channel messages", async () => {
   const f = fixture();
   f.state.ready = true;
   try {
-    for (const agent of ["codex", "claude", "cursor", "grok", "opencode", "hermes"]) {
+    for (const agent of ["codex", "claude", "pi", "hermes"]) {
       assert.equal((await f.native.call<any>("agent.probe", { agent })).ready, true);
       await f.native.call("agent.open", { agent });
       const state = f.service.core.state();
@@ -163,6 +163,6 @@ test("all six agents can be selected and receive desktop or bound-channel messag
         assert.equal(f.service.core.state().jobs[0]?.status, "completed");
       }
     }
-    assert.equal(f.state.sends, 18);
+    assert.equal(f.state.sends, 12);
   } finally { f.close(); }
 });

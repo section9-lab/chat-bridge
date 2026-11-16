@@ -44,7 +44,7 @@ flowchart LR
         Outbox["Outbox<br/>reply to origin"]
         UI["macOS UI<br/>settings + task status"]
     end
-    Agents["Codex · Claude Code · Cursor<br/>Grok · OpenCode · Hermes"]
+    Agents["Codex · Claude Code · Pi<br/>Hermes Agent"]
 
     Phone -->|text| WeChat --> Channel --> Ingress --> Router
     Router -->|"tasks / progress"| Work
@@ -104,7 +104,7 @@ The build uses an Apple Development signing certificate by default. Without one,
 
 ## Works with your agents
 
-**Codex · Claude Code · Cursor · Grok · OpenCode · Hermes Agent**
+**Codex · Claude Code · Pi · Hermes Agent**
 
 Uses each agent's local sign-in and model configuration. Start a conversation in a project, chat without a project, or resume an existing conversation. Availability depends on installation, authentication, model services, and runtime capabilities. Claude Chat and Cowork are not supported yet.
 

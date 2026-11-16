@@ -25,6 +25,6 @@ test("ordinary task text is not mistaken for a command", () => {
 
 test("target phrases only match known agents", () => {
   assert.deepEqual(parseIntent("换成 Claude"), { kind: "target-agent", agent: "claude" });
-  assert.deepEqual(parseIntent("用 Cursor"), { kind: "target-agent", agent: "cursor" });
+  assert.deepEqual(parseIntent("用 Pi"), { kind: "target-agent", agent: "pi" });
   assert.equal(parseIntent("用一下这个"), undefined);
 });

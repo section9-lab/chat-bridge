@@ -44,7 +44,7 @@ flowchart LR
         Outbox["Outbox<br/>回复原通道"]
         UI["macOS 界面<br/>设置 + 任务状态"]
     end
-    Agents["Codex · Claude Code · Cursor<br/>Grok · OpenCode · Hermes"]
+    Agents["Codex · Claude Code · Pi<br/>Hermes Agent"]
 
     Phone -->|文字| WeChat --> Channel --> Ingress --> Router
     Router -->|"任务 / 进度"| Work
@@ -104,7 +104,7 @@ open "dist/Chat Bridge.app"
 
 ## 与你常用的 Agent 一起工作
 
-**Codex · Claude Code · Cursor · Grok · OpenCode · Hermes Agent**
+**Codex · Claude Code · Pi · Hermes Agent**
 
 沿用各 Agent 的本机登录和模型配置。可以新建项目内会话、直接开启无项目会话，也能恢复已有会话。实际可用性取决于安装、登录、模型服务和各运行时能力；Claude Chat 与 Cowork 暂未接入。
 

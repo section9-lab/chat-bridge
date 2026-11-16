@@ -43,8 +43,8 @@ test("new stores enable every agent and stores saved before the picker keep ever
     f.restart();
     assert.deepEqual(f.core.state().preferences.enabledAgents, [...agentIDs]);
     assert.equal(f.core.state().preferences.defaultAgent, "claude");
-    await f.send("/agent cursor");
-    assert.equal(f.core.state().selection.agent, "cursor");
+    await f.send("/agent pi");
+    assert.equal(f.core.state().selection.agent, "pi");
     f.core.setPreferences({ keepAlive: true });
     assert.deepEqual(f.core.state().preferences.enabledAgents, [...agentIDs]);
   } finally { f.close(); }
@@ -57,21 +57,21 @@ test("enabled agents must be a non-empty list of unique known agents", () => {
       assert.throws(() => f.core.setPreferences({ enabledAgents } as never), { code: "INVALID_INPUT" });
     }
     assert.deepEqual(f.core.state().preferences.enabledAgents, [...agentIDs]);
-    f.core.setPreferences({ enabledAgents: ["cursor", "codex"] });
-    assert.deepEqual(f.core.state().preferences.enabledAgents, ["codex", "cursor"], "kept in the fixed agent order");
+    f.core.setPreferences({ enabledAgents: ["pi", "codex"] });
+    assert.deepEqual(f.core.state().preferences.enabledAgents, ["codex", "pi"], "kept in the fixed agent order");
   } finally { f.close(); }
 });
 
 test("disabling the default agent moves the default to the first enabled agent", () => {
   const f = fixture();
   try {
-    f.core.setPreferences({ enabledAgents: ["grok", "claude"] });
+    f.core.setPreferences({ enabledAgents: ["hermes", "claude"] });
     assert.equal(f.core.state().preferences.defaultAgent, "claude");
     assert.equal(f.core.state().selection.agent, "claude", "an untouched selection follows the default");
-    f.core.setPreferences({ defaultAgent: "grok" });
-    f.core.setPreferences({ enabledAgents: ["codex", "grok"] });
-    assert.equal(f.core.state().preferences.defaultAgent, "grok", "an enabled default is kept");
     f.core.setPreferences({ defaultAgent: "hermes" });
+    f.core.setPreferences({ enabledAgents: ["codex", "hermes"] });
+    assert.equal(f.core.state().preferences.defaultAgent, "hermes", "an enabled default is kept");
+    f.core.setPreferences({ defaultAgent: "pi" });
     assert.equal(f.core.state().preferences.defaultAgent, "codex", "a disabled default falls back as well");
   } finally { f.close(); }
 });
@@ -83,19 +83,19 @@ test("/agent lists only enabled agents and a phone cannot switch to a disabled o
     await f.send("桌面会话", "desktop");
     const session = f.core.state().sessions.find(session => session.agent === "claude")!;
     await f.send("/agent codex", "desktop");
-    f.core.setPreferences({ enabledAgents: ["codex", "grok"] });
+    f.core.setPreferences({ enabledAgents: ["codex", "hermes"] });
     await f.send("/agent");
-    assert.match(f.reply(), /Codex：/); assert.match(f.reply(), /Grok：/);
-    assert.doesNotMatch(f.reply(), /Claude|Cursor|OpenCode|Hermes/);
-    const cursor = await f.send("/agent cursor");
-    assert.equal(cursor.message, "Cursor 未在 Chat Bridge 中启用，可在设置里开启。");
-    assert.equal(f.reply(), cursor.message);
+    assert.match(f.reply(), /Codex：/); assert.match(f.reply(), /Hermes Agent：/);
+    assert.doesNotMatch(f.reply(), /Claude|Pi/);
+    const pi = await f.send("/agent pi");
+    assert.equal(pi.message, "Pi 未在 Chat Bridge 中启用，可在设置里开启。");
+    assert.equal(f.reply(), pi.message);
     const resume = await f.send("/use " + session.shortId);
     assert.equal(resume.message, "Claude 未在 Chat Bridge 中启用，可在设置里开启。");
     assert.equal(f.core.state().selection.agent, "codex");
     await f.send("/help");
-    assert.match(f.reply(), /\/agent grok — /);
-    assert.doesNotMatch(f.reply(), /\/agent (claude|cursor|opencode|hermes) — /);
+    assert.match(f.reply(), /\/agent hermes — /);
+    assert.doesNotMatch(f.reply(), /\/agent (claude|pi) — /);
   } finally { f.close(); }
 });
 
@@ -105,7 +105,7 @@ test("a phone message to a disabled agent, including its existing session, is no
     await f.send("/agent claude");
     await f.send("第一条");
     assert.deepEqual(f.sends.map(send => send.agent), ["claude"]);
-    f.core.setPreferences({ enabledAgents: ["codex", "cursor"] });
+    f.core.setPreferences({ enabledAgents: ["codex", "pi"] });
     const receipt = await f.send("继续");
     assert.equal(receipt.jobId, undefined);
     assert.equal(receipt.message, "Claude 未在 Chat Bridge 中启用，可在设置里开启。");

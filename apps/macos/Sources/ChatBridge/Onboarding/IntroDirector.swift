@@ -86,7 +86,7 @@ final class IntroDirector: ObservableObject {
     @Published var subtitle = "你好"
     @Published var conversations: [String: [IntroMessage]] = [:]
     @Published var previews: [String: String] = [
-        "codex": "你好，我在。有什么需要我帮忙的吗？", "claude": "继续你的本地会话", "cursor": "账号未付费，暂不能调用。",
+        "codex": "你好，我在。有什么需要我帮忙的吗？", "claude": "继续你的本地会话", "pi": "继续你的本地会话",
         "grok": "没有在这台 Mac 上找到 Grok。", "opencode": "继续你的本地会话", "hermes": "未配置 API Key，配好后会自动检测。"]
     @Published var busy: Set<String> = []
     @Published var iconDot = false

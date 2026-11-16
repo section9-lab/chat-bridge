@@ -143,11 +143,11 @@ test("late creation saves its session without stealing the last selection", asyn
 test("agents without a registered runtime can be pinned but cannot become active or default", async () => {
   const f = fixture();
   try {
-    f.core.setPreferences({ pinned: ["codex", "cursor", "hermes"] });
-    await assert.rejects(f.core.openAgent("cursor"), /AGENT_UNAVAILABLE/);
-    assert.throws(() => f.core.setPreferences({ defaultAgent: "cursor" }), /AGENT_UNAVAILABLE/);
+    f.core.setPreferences({ pinned: ["codex", "pi", "hermes"] });
+    await assert.rejects(f.core.openAgent("pi"), /AGENT_UNAVAILABLE/);
+    assert.throws(() => f.core.setPreferences({ defaultAgent: "pi" }), /AGENT_UNAVAILABLE/);
     assert.equal(f.core.state().selection.agent, "codex");
-    assert.deepEqual(f.core.state().preferences.pinned, ["codex", "cursor", "hermes"]);
+    assert.deepEqual(f.core.state().preferences.pinned, ["codex", "pi", "hermes"]);
   } finally { f.close(); }
 });
 
@@ -180,12 +180,12 @@ test("selection and display preferences survive process restart", async () => {
   const f = fixture();
   try {
     await f.core.openAgent("claude");
-    f.core.setPreferences({ pinned: ["claude", "cursor"], keepAlive: true });
+    f.core.setPreferences({ pinned: ["claude", "pi"], keepAlive: true });
     const id = f.core.state().selection.sessionId;
     f.core.close();
     const restored = new BridgeCore(f.db, { codex: f.codex, claude: f.claude });
     assert.equal(restored.state().selection.sessionId, id);
-    assert.deepEqual(restored.state().preferences.pinned, ["claude", "cursor"]);
+    assert.deepEqual(restored.state().preferences.pinned, ["claude", "pi"]);
     assert.equal(restored.state().preferences.keepAlive, true);
     restored.close();
   } finally { f.close(); }
@@ -230,7 +230,7 @@ test("display changes preserve an unconfirmed selection and default changes adva
   try {
     await assert.rejects(f.core.openAgent("codex"), /AGENT_UNAVAILABLE/);
     const before = f.core.state().selection;
-    f.core.setPreferences({ pinned: ["codex", "cursor"] });
+    f.core.setPreferences({ pinned: ["codex", "pi"] });
     assert.deepEqual(f.core.state().selection, before);
     f.core.setPreferences({ defaultAgent: "claude" });
     assert.equal(f.core.state().selection.agent, "claude");

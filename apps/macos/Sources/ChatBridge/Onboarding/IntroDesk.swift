@@ -193,7 +193,7 @@ struct WindowReplica: View {
 /// The agents' states in the intro, matching the example in the onboarding demo.
 enum IntroAgents {
     static let status = ["codex": "可用", "claude": "可用", "cursor": "未付费", "grok": "未安装", "opencode": "可用", "hermes": "未配置 Key"]
-    static let unavailable: Set<String> = ["cursor", "grok", "hermes"]
+    static let unavailable: Set<String> = ["hermes"]
 }
 
 struct AgentIcon: View {

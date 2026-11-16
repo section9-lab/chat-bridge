@@ -14,9 +14,7 @@ const agentAliases: Record<string, string> = {
   codex: "codex",
   claude: "claude",
   "claude code": "claude",
-  cursor: "cursor",
-  grok: "grok",
-  opencode: "opencode",
+  pi: "pi",
   hermes: "hermes",
   "hermes agent": "hermes",
 };
@@ -47,7 +45,7 @@ export function parseIntent(value: string): Intent | undefined {
   if (/^(?:同意|批准|允许|可以)$/iu.test(text)) return { kind: "approval", decision: "approve" };
   if (/^(?:拒绝|不同意|不允许)$/iu.test(text)) return { kind: "approval", decision: "deny" };
 
-  const target = /^(?:换成|用|让)\s*(Codex|Claude Code|Claude|Cursor|Grok|OpenCode|Hermes Agent|Hermes)$/iu.exec(text);
+  const target = /^(?:换成|用|让)\s*(Codex|Claude Code|Claude|Pi|Hermes Agent|Hermes)$/iu.exec(text);
   if (target) {
     const agent = agentAliases[target[1]!.toLocaleLowerCase()];
     if (agent) return { kind: "target-agent", agent };

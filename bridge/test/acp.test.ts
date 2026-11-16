@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-async function fixture(id = "cursor", options: { approval?: boolean; hold?: boolean; missing?: boolean; modelError?: boolean; nativeAuth?: boolean; extension?: string } = {}) {
+async function fixture(id = "hermes", options: { approval?: boolean; hold?: boolean; missing?: boolean; modelError?: boolean; nativeAuth?: boolean; extension?: string } = {}) {
   const modulePath = "../src/acp.js";
   const module = await import(modulePath).catch(() => ({}));
   assert.equal(typeof module.ACPRuntime, "function", "The four additional agents need an ACP runtime adapter");
@@ -68,7 +68,7 @@ async function fixture(id = "cursor", options: { approval?: boolean; hold?: bool
     close() { runtime.close(); input.destroy(); output.destroy(); rmSync(directory, { recursive: true, force: true }); } };
 }
 
-for (const id of ["cursor", "grok", "opencode", "hermes"]) {
+for (const id of ["hermes"]) {
   test(id + " probes without creating sessions and resumes the same native ID", async () => {
     const f = await fixture(id);
     try {
@@ -94,7 +94,7 @@ for (const id of ["cursor", "grok", "opencode", "hermes"]) {
 }
 
 test("ACP approvals allow once only after the bridge decision", async () => {
-  const f = await fixture("grok", { approval: true });
+  const f = await fixture("hermes", { approval: true });
   let decide!: (value: string) => void;
   try {
     await f.runtime.probe();
@@ -110,19 +110,7 @@ test("ACP approvals allow once only after the bridge decision", async () => {
   } finally { f.close(); }
 });
 
-test("Cursor blocking extensions receive a valid cancellation instead of hanging or granting plan approval", async () => {
-  for (const extension of ["cursor/ask_question", "cursor/create_plan"]) {
-    const f = await fixture("cursor", { extension });
-    try {
-      await f.runtime.probe();
-      const session = await f.runtime.createSession({ projectId: null, mode: "code" }, "key");
-      await f.runtime.sendTurn(session, "task", "J1");
-      assert.deepEqual(f.decisions[0].result, { outcome: { outcome: "cancelled" } });
-    } finally { f.close(); }
-  }
-});
-
-for (const id of ["grok", "hermes"]) test(id + " checks native credentials and detects a later login without creating a session", async () => {
+for (const id of ["hermes"]) test(id + " checks native credentials and detects a later login without creating a session", async () => {
   const f = await fixture(id, { nativeAuth: true });
   try {
     f.auth(false); assert.equal((await f.runtime.probe()).status, "needs_login");
@@ -142,7 +130,7 @@ test("missing ACP sessions fail instead of silently creating a replacement", asy
 });
 
 test("stopping an ACP task cancels the same session", async () => {
-  const f = await fixture("opencode", { hold: true });
+  const f = await fixture("hermes", { hold: true });
   try {
     await f.runtime.probe();
     const session = await f.runtime.createSession({ projectId: null, mode: "code" }, "key");

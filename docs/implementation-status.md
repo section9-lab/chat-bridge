@@ -4,13 +4,13 @@
 
 ## 2026-11-16 微信单通道 Super Agent
 
-当前实现已收缩为微信单通道：新增 WorkItem（任务）与任务焦点，普通消息继续当前任务；自然语言支持“任务/进度”“新任务”“继续 X”“停一下”“同意/拒绝”，编号菜单用于切换任务。iMessage 适配器和 JEV 路由已移除，桌面端保留。
+当前实现已收缩为微信单通道：新增 WorkItem（任务）与任务焦点，Agent 入口为 Codex、Claude、Pi、Hermes，Pi 通过本机 RPC 接入，普通消息继续当前任务；自然语言支持“任务/进度”“新任务”“继续 X”“停一下”“同意/拒绝”，编号菜单用于切换任务。iMessage 适配器和 JEV 路由已移除，桌面端保留。
 
 软件更新：设置页和菜单栏提供“检查更新”，后台每小时检查 GitHub Releases；下载当前架构 DMG，校验 SHA256 和应用版本后退出替换并重新打开。
 
 设计与图：[微信单通道 Super Agent 改造方案](wechat-only-super-agent-plan.md)、[Mermaid 图](wechat-super-agent-diagrams.md)。
 
-验证：`bridge` 230 项测试通过；macOS `swift test` 68 项通过（3 项跳过）。以下较早条目保留为历史记录；其中 iMessage、JEV 和“两通道”描述已不代表当前实现。
+验证：`bridge` 225 项测试通过；macOS `swift test` 68 项通过（3 项跳过）。以下较早条目保留为历史记录；其中 iMessage、JEV 和“两通道”描述已不代表当前实现。
 
 用户已确认扩展到原应用已有项目与会话，Claude 范围为 Claude Code。Codex 从本机 App Server 读取项目／线程；Claude Code 使用官方 Agent SDK 读取本地会话记录，发送时恢复原 ID。浏览不会执行任务，其他窗口占用时不强制接管。早期执行范围保留在 [ADR 003](decisions/003-managed-codex-runtime.md)。
 

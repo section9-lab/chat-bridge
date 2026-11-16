@@ -9,9 +9,7 @@ struct Agent: Identifiable {
     static let all = [
         Agent(id: "codex", name: "Codex", bundleID: "com.openai.codex", symbol: "command", comingSoon: false),
         Agent(id: "claude", name: "Claude", bundleID: "com.anthropic.claudefordesktop", symbol: "asterisk", comingSoon: false),
-        Agent(id: "cursor", name: "Cursor", bundleID: "com.todesktop.230313mzl4w4u92", symbol: "cursorarrow", comingSoon: false),
-        Agent(id: "grok", name: "Grok", bundleID: nil, symbol: "sparkle", comingSoon: false),
-        Agent(id: "opencode", name: "OpenCode", bundleID: nil, symbol: "chevron.left.forwardslash.chevron.right", comingSoon: false),
+        Agent(id: "pi", name: "Pi", bundleID: nil, symbol: "pi", comingSoon: false),
         Agent(id: "hermes", name: "Hermes Agent", bundleID: nil, symbol: "paperplane", comingSoon: false)
     ]
     static func find(_ id: String) -> Agent { all.first { $0.id == id } ?? all[0] }
@@ -35,7 +33,7 @@ struct Agent: Identifiable {
 
 struct Preferences: Decodable {
     var defaultAgent = "codex"
-    var pinned = ["codex", "claude", "cursor"]
+    var pinned = ["codex", "claude", "pi"]
     var keepAlive = false
     var names: [String: String] = [:]
     /// Agents the phone channel may use. The Mac app can still open any of them.

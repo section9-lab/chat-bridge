@@ -57,14 +57,14 @@ flowchart TB
             CX["Codex Adapter"]
             CL["Claude Adapter"]
             PI["Pi Adapter"]
-            OC["OpenCode Adapter"]
+            HM["Hermes Adapter"]
         end
 
         subgraph SESS["Native Sessions"]
             S1[("Codex Session")]
             S2[("Claude Session")]
             S3[("Pi Session")]
-            S4[("OpenCode Session")]
+            S4[("Hermes Session")]
         end
 
         FS["本地文件 / 仓库 / 凭据"]
@@ -93,7 +93,7 @@ flowchart TB
     CX --> S1
     CL --> S2
     PI --> S3
-    OC --> S4
+    HM --> S4
     S1 --> FS
     S2 --> FS
     S3 --> FS

@@ -9,10 +9,10 @@ import { outputProject, snapshotOutputs, type OutputAttachment } from "./outputs
 import { attachmentLimit, importAttachments, type InputAttachment } from "./attachments.js";
 import { menuLine } from "./routing-options.js";
 
-export const agentIDs = ["codex", "claude", "cursor", "grok", "opencode", "hermes"] as const;
-export const agentNames: Record<string, string> = { codex: "Codex", claude: "Claude Code", cursor: "Cursor", grok: "Grok", opencode: "OpenCode", hermes: "Hermes Agent" };
+export const agentIDs = ["codex", "claude", "pi", "hermes"] as const;
+export const agentNames: Record<string, string> = { codex: "Codex", claude: "Claude Code", pi: "Pi", hermes: "Hermes Agent" };
 // Plain Unicode, so phone channels without rich rendering (iMessage) still show who is answering.
-export const agentEmoji: Record<string, string> = { codex: "🤖", claude: "✳️", cursor: "🧊", grok: "⚡", opencode: "📟", hermes: "🕊️" };
+export const agentEmoji: Record<string, string> = { codex: "🤖", claude: "✳️", pi: "π", hermes: "🕊️" };
 export type AgentProbe = { ready: boolean; reason: string; installed?: boolean; version?: string; executionError?: string;
   status?: "checking" | "missing" | "needs_login" | "ready" | "error" };
 export type Target = {
@@ -120,7 +120,7 @@ export class BridgeCore {
       "PRAGMA user_version = 1;",
     ].join("\n"));
     if (!this.get<Preferences>("preferences")) {
-      this.put("preferences", { defaultAgent: "codex", pinned: ["codex", "claude", "cursor"], keepAlive: false, names: {}, enabledAgents: [...agentIDs] });
+      this.put("preferences", { defaultAgent: "codex", pinned: ["codex", "claude", "pi"], keepAlive: false, names: {}, enabledAgents: [...agentIDs] });
       this.put("selection", this.fresh("codex"));
     }
     this.db.transaction(() => {

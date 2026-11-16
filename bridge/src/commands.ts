@@ -11,7 +11,7 @@ export const commandGuide = `Chat Bridge 使用说明 · 命令指南
 同意 / 拒绝 — 处理待审批操作
 
 目标
-换成 Claude / 用 Cursor — 修改下一条新任务的 Agent
+换成 Claude / 用 Pi — 修改下一条新任务的 Agent
 换个项目 — 查看并选择项目
 看看会话 — 查看并选择已有会话
 
@@ -25,9 +25,7 @@ export const commandGuide = `Chat Bridge 使用说明 · 命令指南
 /more — 查看列表下一页
 /agent codex — 切换到 Codex
 /agent claude — 切换到 Claude Code
-/agent cursor — 切换到 Cursor
-/agent grok — 切换到 Grok
-/agent opencode — 切换到 OpenCode
+/agent pi — 切换到 Pi
 /agent hermes — 切换到 Hermes Agent
 /project none — 切换到无项目
 /new — 下一条消息新建会话

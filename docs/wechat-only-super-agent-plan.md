@@ -105,14 +105,14 @@ flowchart TB
             CX["Codex Adapter"]
             CL["Claude Adapter"]
             PI["Pi Adapter"]
-            OC["OpenCode Adapter"]
+            HM["Hermes Adapter"]
         end
 
         subgraph SESS["Native Sessions"]
             S1[("Codex Session")]
             S2[("Claude Session")]
             S3[("Pi Session")]
-            S4[("OpenCode Session")]
+            S4[("Hermes Session")]
         end
 
         FS["本地文件 / 仓库 / 凭据"]
@@ -141,7 +141,7 @@ flowchart TB
     CX --> S1
     CL --> S2
     PI --> S3
-    OC --> S4
+    HM --> S4
     S1 --> FS
     S2 --> FS
     S3 --> FS
@@ -201,7 +201,7 @@ flowchart TD
 - 已删除 JEV：`routing.ts`、路由设置、API Key、JEV onboarding 和路由 RPC 均移除。
 - 已删除 iMessage：适配器、权限、配对、设置、依赖和测试均移除。
 - 已保留微信单通道和桌面端。
-- 验证：`bridge` 230 项测试通过；macOS `swift test` 68 项通过（3 项跳过）。
+- 验证：`bridge` 225 项测试通过；macOS `swift test` 68 项通过（3 项跳过）。
 
 ---
 
@@ -271,7 +271,7 @@ WorkItem K2  「写请假邮件」
 | Thread | 不需要单独建模，等同于 Conversation |
 | WorkItem | 一件任务 |
 | Job | 任务的一轮执行 |
-| Native Session | Codex/Claude/Pi/OpenCode 的原生会话 |
+| Native Session | Codex/Claude/Pi/Hermes 的原生会话 |
 
 关键规则：
 
@@ -389,7 +389,7 @@ Bot 会从这句话里去掉“新任务”前缀，把剩余内容作为新任�
 
 ```text
 换成 Claude
-用 Cursor
+用 Pi
 换个项目
 看看有哪些会话
 ```
@@ -543,7 +543,7 @@ Outbox -> 微信 owner
 | 切换任务 | 继续登录 bug、回到写请假邮件、切到 K2 | 唯一匹配则切换；多个则菜单 |
 | 新建任务 | 新任务、另开一个、单独做、重新开始 | 清空焦点，下一条创建新任务 |
 | 新建并带内容 | 新任务：写封请假邮件 | 去掉前缀，直接创建新任务 |
-| 修改目标 | 换成 Claude、用 Cursor、换个项目 | 修改下一条新任务的默认目标 |
+| 修改目标 | 换成 Claude、用 Pi、换个项目 | 修改下一条新任务的默认目标 |
 | 停止 | 停一下、别做了、停止 | 停止当前任务运行中的 Job |
 | 取消 | 取消这个、算了 | 取消当前任务未发送的 Job |
 | 审批 | 同意、拒绝、批准 | 仅在有 pending 审批时生效 |

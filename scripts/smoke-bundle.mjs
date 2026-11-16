@@ -52,17 +52,17 @@ try {
   assert.equal(service.announcedVersion, version, "The running helper must report the packaged release version");
   checks.push({ id: "BUNDLE-09", passed: true, description: "The running helper announces the stamped release version." });
   assert.equal(initial.preferences.defaultAgent, "codex");
-  assert.deepEqual(initial.preferences.pinned, ["codex", "claude", "cursor"]);
+  assert.deepEqual(initial.preferences.pinned, ["codex", "claude", "pi"]);
   assert.equal(initial.preferences.keepAlive, false);
   checks.push({ id: "BUNDLE-01", passed: true, description: "Bundled Node and native SQLite load; default preferences are correct." });
-  await service.peer.call("preferences.update", { defaultAgent: "claude", pinned: ["claude", "cursor"], keepAlive: true });
+  await service.peer.call("preferences.update", { defaultAgent: "claude", pinned: ["claude", "pi"], keepAlive: true });
   await assert.rejects(service.peer.call("agent.open", { agent: "codex" }), { code: "AGENT_UNAVAILABLE" });
-  for (const agent of ["cursor", "grok", "opencode", "hermes"]) {
+  for (const agent of ["claude", "pi", "hermes"]) {
     await assert.rejects(service.peer.call("agent.open", { agent }), { code: "AGENT_UNAVAILABLE" });
   }
   await assert.rejects(service.peer.call("exec", {}), { code: "METHOD_NOT_FOUND" });
   assert.equal(nativeMutations, 0);
-  checks.push({ id: "BUNDLE-02", passed: true, description: "All six adapters reject missing runtimes; unknown IPC methods are rejected without native mutation." });
+  checks.push({ id: "BUNDLE-02", passed: true, description: "All four adapters reject missing runtimes; unknown IPC methods are rejected without native mutation." });
   assert.equal(initial.channels.weixin.connected, false);
   assert.equal(initial.channels.weixin.status, "idle");
   await assert.rejects(service.peer.call("channel.weixin.confirm", { attemptId: "not-scanned" }));
@@ -85,7 +85,7 @@ try {
   service = await start();
   const restored = await service.peer.call("state.get");
   assert.equal(restored.preferences.defaultAgent, "claude");
-  assert.deepEqual(restored.preferences.pinned, ["claude", "cursor"]);
+  assert.deepEqual(restored.preferences.pinned, ["claude", "pi"]);
   assert.equal(restored.preferences.keepAlive, true);
   assert.equal(restored.sessions.length, 0);
   await service.stop();

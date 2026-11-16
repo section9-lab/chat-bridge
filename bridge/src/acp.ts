@@ -8,7 +8,7 @@ import { appVersion } from "./version.js";
 import { agentNames, BridgeError, type AgentAdapter, type AgentProbe, type NativeMessage, type NativeProject,
   type NativeSession, type Target, type TurnHooks, type TurnResult } from "./core.js";
 
-export const acpAgentIDs = ["cursor", "grok", "opencode", "hermes"] as const;
+export const acpAgentIDs = ["hermes"] as const;
 type AgentID = typeof acpAgentIDs[number];
 type Installation = { installed: boolean; executablePath?: string; version?: string };
 type Transport = { input: Readable; output: Writable; close(): void };
@@ -68,7 +68,7 @@ export class ACPRuntime implements AgentAdapter {
       if (!path || !isAbsolute(path)) throw new BridgeError("AGENT_UNAVAILABLE", "未检测到 " + agentNames[this.options.id] + " 命令行程序。");
       if (this.closed) throw new BridgeError("AGENT_UNAVAILABLE", "本地服务已关闭。");
       mkdirSync(this.options.workspace, { recursive: true, mode: 0o700 });
-      const args = this.options.id === "grok" ? ["agent", "--no-leader", "stdio"] : ["acp"];
+      const args = ["acp"];
       const transport = (this.options.connect ?? connect)(path, args, this.options.workspace);
       this.transport = transport;
       const stream = acp.ndJsonStream(Writable.toWeb(transport.output), Readable.toWeb(transport.input) as ReadableStream<Uint8Array>);
@@ -116,23 +116,10 @@ export class ACPRuntime implements AgentAdapter {
     const run = async (args: string[]) => (await promisify(execFile)(path, args,
       { env: environment(path), cwd: this.options.workspace, timeout: 8000, maxBuffer: 1024 * 1024 })).stdout;
     switch (this.options.id) {
-      case "cursor": {
-        const status = JSON.parse(await run(["status", "--format", "json"]));
-        if (status.isAuthenticated !== true) return false;
-        await this.request("authenticate", { methodId: "cursor_login" });
-        return true;
-      }
-      case "grok": {
-        const info = await this.request("_x.ai/auth/info", {});
-        return !!info?.methodId && !info.userBlockedReason && !info.teamBlockedReasons?.length;
-      }
       case "hermes":
         // This advertised terminal method checks existing credentials; it does not run setup.
         try { return (await this.request("authenticate", { methodId: "hermes-setup" })) != null; }
         catch (error) { if (((error as acp.RequestError).data as { emptyACPResult?: boolean })?.emptyACPResult === true) return false; throw error; }
-      case "opencode":
-        // Includes configured providers and any enabled models that need no login.
-        return (await run(["models"])).split("\n").some((line) => /^[\w.-]+\/\S+$/.test(line.trim()));
     }
   }
 
@@ -140,7 +127,6 @@ export class ACPRuntime implements AgentAdapter {
     try {
       await this.initialize();
       const ready = await this.authenticated();
-      if (!ready && this.options.id === "grok" && !this.active) this.connection?.close();
       return { installed: true, version: this.installation.version, ready, status: ready ? "ready" : "needs_login",
         executionError: ready ? this.executionError : undefined,
         reason: ready ? agentNames[this.options.id] + " 已就绪，可直接使用。" : "请先在本机登录并配置 " + agentNames[this.options.id] + "，完成后会自动检测。" };

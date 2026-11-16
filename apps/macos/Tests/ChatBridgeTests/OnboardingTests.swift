@@ -72,9 +72,9 @@ final class OnboardingTests: XCTestCase {
     func testEnabledAgentsDefaultToAllForOlderServices() throws {
         let older = #"{"defaultAgent":"codex","pinned":["codex"],"keepAlive":false,"names":{}}"#
         XCTAssertEqual(try JSONDecoder().decode(Preferences.self, from: Data(older.utf8)).enabledAgents, Agent.all.map(\.id))
-        let current = #"{"defaultAgent":"claude","pinned":[],"keepAlive":true,"names":{},"enabledAgents":["claude","opencode"]}"#
+        let current = #"{"defaultAgent":"claude","pinned":[],"keepAlive":true,"names":{},"enabledAgents":["claude","pi"]}"#
         let preferences = try JSONDecoder().decode(Preferences.self, from: Data(current.utf8))
-        XCTAssertEqual(preferences.enabledAgents, ["claude", "opencode"])
+        XCTAssertEqual(preferences.enabledAgents, ["claude", "pi"])
         XCTAssertTrue(preferences.keepAlive)
     }
 }

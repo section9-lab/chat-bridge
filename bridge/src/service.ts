@@ -7,10 +7,11 @@ import { ChannelController } from "./channels.js";
 import { CodexRuntime } from "./codex.js";
 import { ClaudeRuntime } from "./claude.js";
 import { ACPRuntime, acpAgentIDs } from "./acp.js";
+import { PiRuntime, locatePi } from "./pi.js";
 import { ComposioConnectorController } from "./connectors.js";
 
 export function createService(input: Readable, output: Writable, databasePath: string,
-  dependencies: { fetchFn?: typeof fetch; codex?: AgentAdapter; claude?: AgentAdapter;
+  dependencies: { fetchFn?: typeof fetch; codex?: AgentAdapter; claude?: AgentAdapter; pi?: AgentAdapter;
     agents?: Partial<Record<typeof acpAgentIDs[number], AgentAdapter>> } = {}) {
   const handlers: Record<string, Handler> = {};
   const peer = new RPCPeer(input, output, handlers);
@@ -26,7 +27,14 @@ export function createService(input: Readable, output: Writable, databasePath: s
     projectlessRoot: homedir(),
     locate: () => peer.call("native.agent.probe", { agent: "claude" }),
   });
-  const agents: Record<string, AgentAdapter> = { codex, claude };
+  const pi = dependencies.pi ?? new PiRuntime({
+    workspace: join(dirname(databasePath), "Workspaces", "Pi"),
+    projectlessRoot: homedir(),
+    locate: locatePi,
+    onAvailability: () => { if (!closed) core.invalidateAgent("pi"); },
+    onExecution: (error) => { if (!closed) core.recordAgentExecution("pi", error); },
+  });
+  const agents: Record<string, AgentAdapter> = { codex, claude, pi };
   for (const id of acpAgentIDs) agents[id] = dependencies.agents?.[id] ?? new ACPRuntime({ id,
     workspace: join(dirname(databasePath), "Workspaces", id),
     locate: () => peer.call("native.agent.probe", { agent: id }),
