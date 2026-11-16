@@ -1,12 +1,14 @@
 # macOS releases
 
-Pushing a version tag runs [Release macOS](../.github/workflows/release.yml). It builds two native DMGs, tests the packaged app on each architecture, and publishes one GitHub Release after both builds succeed. This first distribution pipeline uses **ad-hoc signing without Apple notarization**, as requested. No Apple credentials or personal access token are required.
+Pushing `main`, or pushing a version tag, runs [Release macOS](../.github/workflows/release.yml). On `main` the workflow chooses the next version, creates and pushes the tag, builds two native DMGs, tests the packaged app on each architecture, and publishes one GitHub Release after both builds succeed. A manually pushed tag uses that tag directly. This first distribution pipeline uses **ad-hoc signing without Apple notarization**, as requested. No Apple credentials or personal access token are required.
 
 ## Release flow
 
 ```mermaid
 flowchart LR
+    M[Push main] --> N[Choose next version and push tag]
     T[Push version tag] --> V[Validate tag and release rules]
+    N --> V
     V --> A[ARM64 native build and tests]
     V --> I[Intel native build and tests]
     A --> DA[Create, mount and verify ARM64 DMG]
@@ -37,7 +39,7 @@ The native app icon is compiled separately with Xcode 26+ using `bash scripts/bu
 | `v1.2.3-rc.1` | Prerelease | `ChatBridge-1.2.3-rc.1-macos-arm64.dmg` |
 | `v1.2.3-beta.2` | Prerelease | `ChatBridge-1.2.3-beta.2-macos-x86_64.dmg` |
 
-Only `vMAJOR.MINOR.PATCH` with an optional SemVer prerelease suffix is accepted. Leading zeros in numeric identifiers, incomplete versions, and `+build` metadata are rejected. Other pushes do not trigger this workflow. Prereleases never become Latest; stable releases use GitHub's automatic date/version selection.
+Only `vMAJOR.MINOR.PATCH` with an optional SemVer prerelease suffix is accepted. Leading zeros in numeric identifiers, incomplete versions, and `+build` metadata are rejected. A push to `main` uses `CFBundleShortVersionString` as the base version; if that tag already exists, the patch number is incremented until an unused tag is found. Manual tag pushes are also supported. Prereleases never become Latest; stable releases use GitHub's automatic date/version selection.
 
 The tag is the source of truth for the distributable:
 
@@ -60,7 +62,7 @@ SHA256SUMS.txt
 
 GitHub also supplies its standard source archives. Each DMG contains `Chat Bridge.app` and an `Applications` shortcut for drag-and-drop installation. The app includes Node, the production service dependencies, icons and licenses. Users install and sign in to their preferred Agent separately; they do not need Node, npm or Xcode to run the DMG build.
 
-The generated English release notes explain architecture selection, installation, signing and required permissions. These builds are **ad-hoc signed, not Developer ID signed, and not notarized**. After a blocked first launch, users who trust the download can use System Settings → Privacy & Security → Open Anyway for this app. Managed Macs may not permit this exception. The workflow does not disable Gatekeeper or change system security settings. Full Disk Access may need to be granted again after an ad-hoc update; iMessage, WeChat and Agent setup remain explicit user steps.
+The generated English release notes explain architecture selection, installation, signing and required permissions. Installed apps check the latest GitHub Release at launch and hourly, and can also check from Settings or the menu bar; the updater verifies the DMG checksum, bundle version and signature before replacing the app. These builds are **ad-hoc signed, not Developer ID signed, and not notarized**. After a blocked first launch, users who trust the download can use System Settings → Privacy & Security → Open Anyway for this app. Managed Macs may not permit this exception. The workflow does not disable Gatekeeper or change system security settings. Full Disk Access may need to be granted again after an ad-hoc update; iMessage, WeChat and Agent setup remain explicit user steps.
 
 To check downloaded files, place both DMGs and the checksum file in one directory and run:
 
@@ -102,7 +104,7 @@ The publish job alone receives `contents: write`; build jobs use read-only permi
 
 4. Check both macOS jobs and the Release assets. Verify installation, first launch, required permissions and messaging on clean Apple Silicon and Intel Macs before declaring broad device compatibility.
 
-Create tags from your own Git client or another appropriately authorized actor. A tag pushed by another workflow using its default `GITHUB_TOKEN` does not trigger a new workflow run under GitHub's event-recursion rules. Push one release tag at a time. Do not move a published tag to fix a release.
+The automatic tag is pushed with the workflow's `GITHUB_TOKEN`; GitHub does not start a second workflow for that tag, so the current run continues through build and publish. Manual tags can still be created from a Git client for explicit major/minor/prerelease versions. Push one release tag at a time. Do not move a published tag to fix a release.
 
 ## Local dry run
 

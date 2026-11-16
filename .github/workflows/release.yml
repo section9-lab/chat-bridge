@@ -2,14 +2,15 @@ name: Release macOS
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-macos
   cancel-in-progress: false
 
 defaults:
@@ -17,8 +18,54 @@ defaults:
     shell: bash
 
 jobs:
+  version:
+    name: Determine release version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Choose and create the tag
+        id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "push" ] && [ "$REF_TYPE" = "tag" ]; then
+            TAG="$REF_NAME"
+          else
+            BASE="$(python3 -c "import plistlib; from pathlib import Path; print(plistlib.loads(Path('apps/macos/Info.plist').read_bytes())['CFBundleShortVersionString'])")"
+            if ! [[ "$BASE" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Info.plist version must be MAJOR.MINOR.PATCH, got: $BASE" >&2
+              exit 1
+            fi
+            IFS=. read -r MAJOR MINOR PATCH <<< "$BASE"
+            TAG="v$BASE"
+            if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+              while git rev-parse -q --verify "refs/tags/v$MAJOR.$MINOR.$PATCH" >/dev/null; do
+                PATCH=$((PATCH + 1))
+              done
+              TAG="v$MAJOR.$MINOR.$PATCH"
+            fi
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -a "$TAG" -m "Chat Bridge $TAG"
+            git push origin "$TAG"
+          fi
+          python3 scripts/release.py metadata "$TAG" >/dev/null
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
   validate:
     name: Validate release tag
+    needs: version
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -27,14 +74,14 @@ jobs:
           persist-credentials: false
       - name: Validate version and release protections
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ needs.version.outputs.tag }}
         run: |
           python3 -B -m unittest discover -s scripts/tests -p 'test_release.py' -v
           python3 scripts/release.py metadata "$RELEASE_TAG"
 
   build:
     name: Build DMG (${{ matrix.arch }})
-    needs: validate
+    needs: [version, validate]
     strategy:
       fail-fast: false
       matrix:
@@ -50,7 +97,7 @@ jobs:
       DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
       MACOSX_DEPLOYMENT_TARGET: '13.5'
       CHAT_BRIDGE_SIGNING_IDENTITY: '-'
-      CHAT_BRIDGE_RELEASE_TAG: ${{ github.ref_name }}
+      CHAT_BRIDGE_RELEASE_TAG: ${{ needs.version.outputs.tag }}
       CHAT_BRIDGE_BUILD_NUMBER: ${{ github.run_number }}
       TARGET_ARCH: ${{ matrix.arch }}
     steps:
@@ -83,7 +130,7 @@ jobs:
 
   publish:
     name: Publish both architectures
-    needs: build
+    needs: [version, build]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -101,7 +148,7 @@ jobs:
       - name: Verify uploads and publish the draft
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ needs.version.outputs.tag }}
           RELEASE_REPOSITORY: ${{ github.repository }}
           RELEASE_COMMIT: ${{ github.sha }}
         run: python3 scripts/release.py publish dist/release "$RELEASE_TAG" "$RELEASE_REPOSITORY" "$RELEASE_COMMIT"
