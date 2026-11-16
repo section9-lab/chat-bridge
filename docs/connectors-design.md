@@ -2,7 +2,11 @@
 
 版本：0.1（提案）  
 日期：2026-11-03  
-状态：已确认；阶段 A（目录、账号连接、权限策略与原生界面）已实施，Agent 工具执行阶段待继续验收
+状态：已确认；目录与账号配置已实现，真实服务认证及 Agent 工具执行仍待验收
+
+2026-11-04 更新：连接器配置已移入“设置 → 连接器”，位于“消息通道”和“通用”之间。目录使用服务端搜索和按需分页；账号策略为预配置，当前不执行工具。所有入口均打开设置中的同一连接器页面；旧版独立窗口交互描述仅作设计记录。Composio v3 仍受支持，新版文档推荐 v3.1；现有 v3 接入尚未迁移。多个认证配置时不擅自选择，需要用户先在 Composio 控制台处理。未实测所有服务或所有认证方式。
+
+参考：[Composio Toolkit API](https://docs.composio.dev/reference/api-reference/toolkits/getToolkits)、[Connected Accounts](https://docs.composio.dev/docs/auth-configuration/connected-accounts)、[RFC 8252（原生应用 OAuth）](https://www.rfc-editor.org/rfc/rfc8252.html)、[RFC 9700（OAuth 安全最佳实践）](https://www.rfc-editor.org/rfc/rfc9700.html)。
 
 ## 1. 目标
 

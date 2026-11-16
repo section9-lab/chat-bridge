@@ -64,6 +64,19 @@ final class AppNavigationTests: XCTestCase {
     }
 
     @MainActor
+    func testConnectorEntryOpensTheSettingsPane() async {
+        let application = NSApplication.shared
+        let delegate = HiddenDesktop().makeDelegate()
+        defer {
+            for window in application.windows where window.title.hasPrefix("Chat Bridge") { window.close() }
+        }
+        delegate.showConnectorCenter()
+        XCTAssertEqual(delegate.service.settingsTab, 4)
+        XCTAssertTrue(application.windows.contains { $0.title == "Chat Bridge 设置" && $0.isVisible })
+        XCTAssertFalse(application.windows.contains { $0.title == "连接器" && $0.isVisible })
+    }
+
+    @MainActor
     func testReopenReturnsToConversationWindow() async {
         let application = NSApplication.shared
         let delegate = HiddenDesktop().makeDelegate()

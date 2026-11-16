@@ -4,16 +4,13 @@ import { dirname, join } from "node:path";
 import { agentIDs, BridgeCore, BridgeError, type AgentAdapter, type Preferences } from "./core.js";
 import { RPCPeer, RPCError, type Handler } from "./rpc.js";
 import { ChannelController } from "./channels.js";
-import { IMessageController } from "./imessage.js";
-import type { IMessageSource } from "./imessage-source.js";
 import { CodexRuntime } from "./codex.js";
 import { ClaudeRuntime } from "./claude.js";
 import { ACPRuntime, acpAgentIDs } from "./acp.js";
-import { JevGateway, routingProviders, type RoutingProvider, type RoutingSettings } from "./routing.js";
 import { ComposioConnectorController } from "./connectors.js";
 
 export function createService(input: Readable, output: Writable, databasePath: string,
-  dependencies: { fetchFn?: typeof fetch; routingNow?: () => number; iMessageSource?: () => IMessageSource; codex?: AgentAdapter; claude?: AgentAdapter;
+  dependencies: { fetchFn?: typeof fetch; codex?: AgentAdapter; claude?: AgentAdapter;
     agents?: Partial<Record<typeof acpAgentIDs[number], AgentAdapter>> } = {}) {
   const handlers: Record<string, Handler> = {};
   const peer = new RPCPeer(input, output, handlers);
@@ -45,26 +42,13 @@ export function createService(input: Readable, output: Writable, databasePath: s
     userID: () => core.connectorUserID(), policies: () => core.connectorPolicies(),
     setPolicy: (policy) => core.setConnectorPolicy(policy), removePolicy: (accountId) => core.removeConnectorPolicy(accountId),
   }, dependencies.fetchFn, () => { if (!closed) peer.event("state.changed", snapshot()); });
-  // A genuinely fresh install tries Jev by default; anyone who has ever saved a routing
-  // preference (including an explicit "off") keeps exactly what they chose.
-  if (!core.routingConfiguredOnce()) core.setRoutingSettings({ mode: "auto" });
   const channels = new ChannelController(core, {
     read: () => peer.call("native.weixin.credential.read", {}),
     write: async (credential) => { await peer.call("native.weixin.credential.write", { credential }); },
     remove: async () => { await peer.call("native.weixin.credential.remove", {}); },
   }, () => peer.event("state.changed", snapshot()), dependencies.fetchFn);
-  const imessage = new IMessageController(core, () => peer.event("state.changed", snapshot()), dependencies.iMessageSource);
-  const routers = Object.fromEntries((Object.keys(routingProviders) as RoutingProvider[]).map((provider) => [provider, new JevGateway({
-    read: () => peer.call("native." + provider + ".credential.read", {}),
-    write: async (credential) => { await peer.call("native." + provider + ".credential.write", { credential }); },
-    remove: async () => { await peer.call("native." + provider + ".credential.remove", {}); },
-  }, dependencies.fetchFn, dependencies.routingNow, provider)])) as Record<RoutingProvider, JevGateway>;
-  const routing = () => routers[core.routingSettings().provider];
-  core.routeDecision = (context, actions) => routers[context.settings.provider].choose(context, actions);
   let closed = false, started = false, timer: ReturnType<typeof setTimeout> | undefined;
-  let imessageTimer: ReturnType<typeof setInterval> | undefined;
   let probeTimer: ReturnType<typeof setInterval> | undefined;
-  let sweepTimer: ReturnType<typeof setInterval> | undefined;
   const running = new Set<string>();
   const object = (value: unknown): Record<string, unknown> => {
     if (!value || Array.isArray(value) || typeof value !== "object") throw new BridgeError("INVALID_INPUT", "需要有效的参数对象。");
@@ -79,8 +63,8 @@ export function createService(input: Readable, output: Writable, databasePath: s
     const selected = state.sessions.find((session) => session.id === state.selection.sessionId);
     const sessions = state.sessions.filter((session) => session.id !== selected?.id).slice(-99);
     if (selected) sessions.push(selected);
-    const snapshot = { ...state, routing: { ...core.routingSettings(), ...routing().status() }, connectors: connectors.summary(),
-      historyPartial: true, channels: { weixin: channels.state, imessage: imessage.state },
+    const snapshot = { ...state, connectors: connectors.summary(),
+      historyPartial: true, channels: { weixin: channels.state },
       deliveries: core.outbox().filter((entry) => entry.origin.kind !== "desktop").slice(-100).reverse()
         .map(({ id, jobId, status, kind, error }) => ({ id, jobId, status, kind, error })),
       sessions: sessions.map((session) => ({ ...session, title: session.title.slice(0, 128) })),
@@ -120,35 +104,6 @@ export function createService(input: Readable, output: Writable, databasePath: s
     };
   }
   register("state.get", snapshot);
-  const selectedRouter = (params: unknown) => {
-    const provider = object(params).provider;
-    if (provider !== undefined && provider !== core.routingSettings().provider) throw new BridgeError("INVALID_STATE", "路由服务已切换，请在当前服务中重新操作。");
-    return routing();
-  };
-  register("routing.get", async () => { await routing().restore(); return { ...core.routingSettings(), ...routing().status() }; });
-  register("routing.key.save", async (params) => { await selectedRouter(params).save(object(params).apiKey); return snapshot(); });
-  register("routing.key.remove", async (params) => { const router = selectedRouter(params); await router.remove(); return snapshot(); });
-  register("routing.test", async (params) => { await selectedRouter(params).test(); return snapshot(); });
-  register("routing.configure", async (params) => {
-    const patch = object(params);
-    if (patch.provider !== undefined && (typeof patch.provider !== "string" || !Object.hasOwn(routingProviders, patch.provider))) {
-      throw new BridgeError("INVALID_INPUT", "请选择有效的路由服务。");
-    }
-    const provider = (patch.provider ?? core.routingSettings().provider) as RoutingProvider, router = routers[provider];
-    if (provider !== core.routingSettings().provider) await router.restore();
-    else if (patch.mode !== undefined && patch.mode !== "off") {
-      if (!router.status().configured) await router.restore();
-      if (!router.status().configured) throw new BridgeError("INVALID_INPUT", "请先保存并验证所选服务的 API Key。");
-    }
-    core.setRoutingSettings(patch as Partial<RoutingSettings>); return snapshot();
-  });
-  register("routing.resolve", (params) => {
-    const request = object(params);
-    const receipt = core.resolveRouting(text(request.jobId, 64), request.index as number,
-      { kind: "desktop", accountId: "local", peerId: "local", eventId: "route-choice" });
-    if (receipt.jobId) launchJob(receipt.jobId);
-    return snapshot();
-  });
   register("connector.provider.get", async () => { await connectors.restore(); return connectors.status(); });
   register("connector.provider.key.save", (params) => connectors.save(object(params).apiKey));
   register("connector.provider.key.remove", () => connectors.remove());
@@ -228,11 +183,6 @@ export function createService(input: Readable, output: Writable, databasePath: s
   register("channel.weixin.verify", async (params) => { await channels.verify(text(object(params).code, 16)); return snapshot(); });
   register("channel.weixin.reconnect", async () => { await channels.restore(); return snapshot(); });
   register("channel.weixin.disconnect", async () => { await channels.disconnect(); return snapshot(); });
-  register("channel.imessage.start", async (params) => {
-    const request = object(params); await imessage.start(text(request.email, 254), text(request.phone, 32)); return snapshot();
-  });
-  register("channel.imessage.reconnect", async () => { await imessage.restore(); return snapshot(); });
-  register("channel.imessage.disconnect", async () => { await imessage.disconnect(); return snapshot(); });
   let historySelection: number | undefined;
   core.onChange = () => {
     if (closed) return;
@@ -245,7 +195,6 @@ export function createService(input: Readable, output: Writable, databasePath: s
       });
     }
     void channels.flush().catch(() => { if (!closed) peer.event("service.error", {}); });
-    void imessage.flush().catch(() => { if (!closed) peer.event("service.error", {}); });
     if (started) runPending();
   };
   function launchJob(id: string) {
@@ -268,18 +217,9 @@ export function createService(input: Readable, output: Writable, databasePath: s
       void connectors.restore();
       void core.probeAgents();
       probeTimer = setInterval(() => { void core.probeAgents(); }, 30_000);
-      core.sweepExpiredRoutes();
-      sweepTimer = setInterval(() => core.sweepExpiredRoutes(), 60_000);
       runPending();
       void channels.restore().then(tick).catch(() => { if (!closed) peer.close(); });
-      void imessage.restore().then(async () => {
-        if (closed) return;
-        await imessage.tick(); await imessage.flush();
-        if (!closed) imessageTimer = setInterval(() => {
-          void imessage.tick().then(() => imessage.flush()).catch(() => { if (!closed) peer.event("service.error", {}); });
-        }, 1000);
-      }).catch(() => { if (!closed) peer.event("service.error", {}); });
     },
-    close() { closed = true; clearTimeout(timer); clearInterval(imessageTimer); clearInterval(probeTimer); clearInterval(sweepTimer); channels.close(); void imessage.close().catch(() => {}); core.close(); for (const agent of Object.values(agents)) agent.close?.(); peer.close(); }
+    close() { closed = true; clearTimeout(timer); clearInterval(probeTimer); channels.close(); core.close(); for (const agent of Object.values(agents)) agent.close?.(); peer.close(); }
   };
 }

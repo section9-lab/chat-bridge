@@ -64,14 +64,10 @@ try {
   assert.equal(nativeMutations, 0);
   checks.push({ id: "BUNDLE-02", passed: true, description: "All six adapters reject missing runtimes; unknown IPC methods are rejected without native mutation." });
   assert.equal(initial.channels.weixin.connected, false);
-  assert.equal(initial.channels.imessage.connected, false);
   assert.equal(initial.channels.weixin.status, "idle");
-  assert.equal(initial.channels.imessage.status, "idle");
-  await assert.rejects(service.peer.call("channel.imessage.start", { email: "invalid", phone: "1234" }), { code: "INVALID_INPUT" });
   await assert.rejects(service.peer.call("channel.weixin.confirm", { attemptId: "not-scanned" }));
   assert.equal(keychainReads, 0);
-  assert.ok((await readFile(join(bundle, "Resources/service/node_modules/@photon-ai/imessage-kit/dist/index.js"), "utf8")).includes("var RETRY_ATTEMPTS = 1;"));
-  checks.push({ id: "BUNDLE-06", passed: true, description: "Packaged channel APIs stay dormant, reject invalid binding, and contain the single-attempt iMessage patch." });
+  checks.push({ id: "BUNDLE-06", passed: true, description: "The packaged WeChat channel stays dormant and rejects an invalid binding." });
   const help = await service.peer.call("message.send", { text: "/help", eventId: "fixture-help", selectionVersion: 1 });
   assert.match(help.message, /命令指南/);
   assert.match(help.message, /\/status/);

@@ -5,9 +5,6 @@ import ChatBridgeKit
 enum KeychainVault {
     private static let credentials = [
         "weixin": (account: "weixin-v1", label: "微信"),
-        "vercel": (account: "vercel-ai-gateway-v1", label: "Vercel AI Gateway"),
-        "openrouter": (account: "openrouter-v1", label: "OpenRouter"),
-        "typesafe": (account: "typesafe-v1", label: "TypeSafe"),
         "composio": (account: "composio-v1", label: "Composio")
     ]
     static let methods = credentials.keys.flatMap { provider in
@@ -19,18 +16,12 @@ enum KeychainVault {
          kSecAttrAccount as String: account]
     }
     struct Failure: Error { let status: OSStatus }
-    static func routingKey(for provider: String, read: (String, Data?) throws -> Data? = perform) throws -> String? {
-        guard RoutingProvider.all.contains(where: { $0.id == provider }) else { throw Failure(status: errSecParam) }
-        guard let data = try read("native.\(provider).credential.read", nil) else { return nil }
-        return try JSONDecoder().decode(RoutingSecret.self, from: data).apiKey
-    }
     static func perform(_ method: String, credential: Data?) throws -> Data? {
         guard methods.contains(method) else { throw Failure(status: errSecParam) }
         let parts = method.split(separator: ".").map(String.init)
         let provider = parts[1], configuration = credentials[provider]!
         let query = query(account: configuration.account)
-        let validate = provider == "weixin" ? WeixinSecret.validatedData :
-            provider == "composio" ? ConnectorSecret.validatedData : RoutingSecret.validatedData
+        let validate = provider == "weixin" ? WeixinSecret.validatedData : ConnectorSecret.validatedData
         switch parts[3] {
         case "read":
             var request = query

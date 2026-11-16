@@ -5,7 +5,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { agentIDs, BridgeCore, BridgeError, type AgentAdapter, type Origin } from "../src/core.js";
-import type { RouteAction, RoutingContext } from "../src/routing.js";
 
 function fixture() {
   const directory = mkdtempSync(join(tmpdir(), "bridge-enabled-agents-")), database = join(directory, "bridge.sqlite");
@@ -125,51 +124,16 @@ test("a phone message to a disabled agent, including its existing session, is no
   } finally { f.close(); }
 });
 
-test("the Mac app can still send to an explicitly selected disabled agent, with or without smart routing", async () => {
+test("the Mac app can still send to an explicitly selected disabled agent", async () => {
   const f = fixture();
   try {
     f.core.setPreferences({ enabledAgents: ["codex"] });
     await f.send("/agent claude", "desktop");
     assert.equal(f.core.state().selection.agent, "claude");
     await f.send("桌面任务", "desktop");
-    let calls = 0;
-    f.core.routeDecision = async () => { calls++; throw new BridgeError("ROUTER_UNAVAILABLE", "不应调用路由。"); };
-    f.core.setRoutingSettings({ mode: "auto" });
     await f.send("再来一条", "desktop");
-    assert.equal(calls, 0);
     assert.deepEqual(f.sends.map(send => send.agent), ["claude", "claude"]);
     assert.equal(f.sends[0]!.nativeId, f.sends[1]!.nativeId);
     assert.ok(f.core.state().jobs.every(job => job.status === "completed"));
-  } finally { f.close(); }
-});
-
-test("smart routing only offers enabled agents and never continues a disabled current agent", async () => {
-  const f = fixture();
-  try {
-    let seen: { context: RoutingContext; actions: RouteAction[] } | undefined;
-    f.core.routeDecision = async (context, actions) => { seen = { context, actions };
-      return { choice: "new_codex_none", confidence: 1, probabilities: { new_codex_none: 1 } }; };
-    f.core.setRoutingSettings({ mode: "auto", planning: "claude", implementation: "cursor", research: "grok" });
-    await f.send("/agent claude");
-    f.core.setPreferences({ enabledAgents: ["codex", "grok"] });
-    await f.send("写一个脚本");
-    const agents = new Set(seen!.actions.flatMap(action => [action.target?.agent, action.scope?.agent]).filter(Boolean));
-    assert.deepEqual([...agents].sort(), ["codex", "grok"]);
-    assert.equal(seen!.actions.some(action => action.id === "continue"), false);
-    assert.deepEqual(Object.keys(seen!.context.probes).sort(), ["codex", "grok"]);
-    assert.deepEqual([seen!.context.settings.planning, seen!.context.settings.implementation, seen!.context.settings.research], ["default", "default", "grok"]);
-    assert.deepEqual(f.sends.map(send => send.agent), ["codex"]);
-
-    // Without a routing answer, the numbered menu offers only enabled agents and names the disabled one clearly.
-    await f.send("/agent claude", "desktop");
-    f.core.routeDecision = async () => { throw new BridgeError("ROUTER_UNAVAILABLE", "智能路由连接超时。"); };
-    await f.send("另一个任务");
-    assert.equal(f.core.state().jobs[0]?.status, "awaiting_route");
-    const menu = await f.send("手动选择目标");
-    assert.match(menu.message!, /Codex（/); assert.match(menu.message!, /Grok（/);
-    assert.doesNotMatch(menu.message!, /Claude|Cursor|OpenCode|Hermes/);
-    const named = await f.send("Claude");
-    assert.match(named.message!, /^Claude 未在 Chat Bridge 中启用，可在设置里开启。/);
-    assert.equal(f.sends.length, 1);
   } finally { f.close(); }
 });

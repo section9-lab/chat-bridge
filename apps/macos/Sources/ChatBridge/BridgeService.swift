@@ -9,6 +9,7 @@ final class BridgeService: ObservableObject {
     @Published var lastError: String?
     @Published var notice: String?
     @Published var viewedAgent = "codex"
+    @Published var settingsTab = 0
     @Published var probes: [String: AgentProbe] = [:]
     @Published var isRunning = false
     @Published var opening: Set<String> = []
@@ -29,9 +30,6 @@ final class BridgeService: ObservableObject {
     @Published var channelBusy = false
     @Published var channelErrors: [String: String] = [:]
     @Published var taskBusy: Set<String> = []
-    @Published var routingBusy = false
-    @Published var routingError: String?
-    @Published var routingNotice: String?
     @Published var connectorBusy = false
     @Published var connectorError: String?
     @Published var connectorNotice: String?
@@ -57,8 +55,7 @@ final class BridgeService: ObservableObject {
         viewedAgent + ":" + (state.selection.agent == viewedAgent ? state.selection.sessionId ?? "new:" + (state.selection.projectId ?? "none") : "new:none")
     }
     var canSend: Bool {
-        let canRoute = state.routing?.configured == true && state.routing?.mode != "off"
-        return (probes[viewedAgent]?.ready == true || canRoute) && isRunning && !opening.contains(viewedAgent) && state.selection.agent == viewedAgent
+        probes[viewedAgent]?.ready == true && isRunning && !opening.contains(viewedAgent) && state.selection.agent == viewedAgent
     }
     var viewedSession: SessionSummary? {
         state.sessions.first { $0.id == state.selection.sessionId && $0.agent == viewedAgent }
@@ -141,8 +138,6 @@ final class BridgeService: ObservableObject {
         probes = [:]
         state.channels?.weixin.connected = false
         state.channels?.weixin.status = "error"
-        state.channels?.imessage?.connected = false
-        state.channels?.imessage?.status = "error"
         output?.fileHandleForReading.readabilityHandler = nil
         diagnostics?.fileHandleForReading.readabilityHandler = nil
         try? input?.fileHandleForWriting.close()
@@ -310,33 +305,6 @@ final class BridgeService: ObservableObject {
             catch { lastError = error.localizedDescription }
         }
     }
-    func routing(_ action: String, params: [String: Any] = [:]) async -> Bool {
-        guard !routingBusy, ["get", "key.save", "key.remove", "test", "configure"].contains(action) else { return false }
-        routingBusy = true; routingError = nil; routingNotice = nil
-        defer { routingBusy = false }
-        do {
-            let value = try await request("routing." + action, params)
-            if action == "get" {
-                let data = try JSONSerialization.data(withJSONObject: value)
-                state.routing = try JSONDecoder().decode(RoutingState.self, from: data)
-            } else { updateState(value) }
-            if action == "key.save" { routingNotice = "Key 已保存到钥匙串，Jev 连接验证通过。请选择路由方式开始试用。" }
-            if action == "test" { routingNotice = "Jev 连接验证通过。" }
-            if action == "key.remove" { routingNotice = "Key 已移除，请重新保存 Key 后再使用智能路由。" }
-            return true
-        } catch { routingError = channelErrorMessage(error); return false }
-    }
-    func resolveRouting(_ job: JobSummary, index: Int) {
-        guard !taskBusy.contains(job.id), job.status == "awaiting_route" else { return }
-        taskBusy.insert(job.id)
-        Task {
-            defer { taskBusy.remove(job.id) }
-            do {
-                updateState(try await request("routing.resolve", ["jobId": job.id, "index": index]))
-                lastError = nil
-            } catch { lastError = error.localizedDescription }
-        }
-    }
     func connectorProvider() async -> ConnectorProviderState? {
         do {
             let value = try await request("connector.provider.get")
@@ -353,7 +321,7 @@ final class BridgeService: ObservableObject {
         do {
             _ = try await request("connector.provider.key.save", ["apiKey": apiKey])
             updateState(try await request("state.get"))
-            connectorNotice = "Composio 已连接，API Key 已保存到钥匙串。"
+            connectorNotice = state.connectors?.provider.message ?? "API Key 已验证并保存到钥匙串。"
             return true
         } catch { connectorError = channelErrorMessage(error); return false }
     }
@@ -404,7 +372,7 @@ final class BridgeService: ObservableObject {
             let accounts = try JSONDecoder().decode([ConnectedConnectorAccount].self,
                 from: JSONSerialization.data(withJSONObject: value))
             updateState(try await request("state.get"))
-            connectorNotice = "账号连接完成。请选择允许访问的 Agent。"
+            connectorNotice = "已刷新账号状态，请确认账号是否已连接。"
             return accounts
         } catch { connectorError = channelErrorMessage(error); return nil }
     }
@@ -435,15 +403,6 @@ final class BridgeService: ObservableObject {
             defer { channelBusy = false }
             do { updateState(try await request("channel.weixin." + action, params)); lastError = nil }
             catch { channelErrors["weixin"] = channelErrorMessage(error) }
-        }
-    }
-    func imessage(_ action: String, params: [String: Any] = [:]) {
-        guard !channelBusy, ["start", "verify", "confirm", "reconnect", "disconnect"].contains(action) else { return }
-        channelBusy = true; channelErrors.removeValue(forKey: "imessage"); lastError = nil
-        Task {
-            defer { channelBusy = false }
-            do { updateState(try await request("channel.imessage." + action, params)); lastError = nil }
-            catch { channelErrors["imessage"] = channelErrorMessage(error) }
         }
     }
     private func channelErrorMessage(_ error: Error) -> String {

@@ -11,7 +11,6 @@ function fixture() {
   const directory = realpathSync(mkdtempSync(join(tmpdir(), "bridge-create-project-")));
   const events: any[] = [], sessions: any[] = [];
   let sequence = 0;
-  const offered: string[][] = [];
   const adapters = Object.fromEntries(["codex", "claude"].map(agent => [agent, {
     probe: async () => ({ ready: true, reason: "Fixture" }),
     listProjects: async () => [],
@@ -29,24 +28,19 @@ function fixture() {
   } as AgentAdapter]));
   const core = new BridgeCore(join(directory, "bridge.sqlite"), adapters);
   core.bindChannel("weixin", "bot", "owner");
-  core.setRoutingSettings({ mode: "auto" });
-  const choose = (id: string) => { core.routeDecision = async (_context, actions) => {
-    offered.push(actions.map(a => a.id));
-    return { choice: id, confidence: 1, probabilities: { [id]: 1 } };
-  }; };
   const send = async (text: string) => {
     const receipt = core.receive({ kind: "weixin", accountId: "bot", peerId: "owner", eventId: String(++sequence) } as Origin, text);
     if (receipt.jobId) await core.run(receipt.jobId); return receipt;
   };
-  return { core, directory, events, offered, choose, send,
+  return { core, directory, events, send,
     close() { core.close(); rmSync(directory, { recursive: true, force: true }); } };
 }
 
 test("asking to create a project inside a conversation goes to that conversation unchanged", async () => {
   const f = fixture();
   try {
-    f.choose("new_codex_none"); await f.send("你好");
-    f.choose("continue"); await f.send("在这里创建一个卡牌游戏项目");
+    await f.send("你好");
+    await f.send("在这里创建一个卡牌游戏项目");
     const sends = f.events.filter(e => e.type === "send");
     assert.equal(f.events.filter(e => e.type === "session").length, 1);
     assert.deepEqual(sends.map(e => e.text), ["你好", "在这里创建一个卡牌游戏项目"]);
@@ -58,10 +52,9 @@ test("asking to create a project inside a conversation goes to that conversation
 test("asking to create a project with no conversation starts a projectless session and sends the request as is", async () => {
   const f = fixture();
   try {
-    f.choose("new_codex_none"); await f.send("用 Codex 创建名为“远程卡牌”的项目，先给出方案。");
+    await f.send("用 Codex 创建名为“远程卡牌”的项目，先给出方案。");
     assert.deepEqual(f.events.map(e => e.type), ["session", "send"]);
     assert.equal(f.events[0].target.projectId, null);
     assert.equal(f.events[1].text, "用 Codex 创建名为“远程卡牌”的项目，先给出方案。");
-    assert.equal(f.offered[0]!.some(id => id.startsWith("new_project_")), false, "no bridge-side project creation is offered");
   } finally { f.close(); }
 });

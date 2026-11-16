@@ -1,12 +1,22 @@
 # 实施进度
 
-日期：2026-09-20。版本：0.3.0 开发预览。
+日期：2026-09-20。版本：0.6.0 开发预览。
+
+## 2026-11-16 微信单通道 Super Agent
+
+当前实现已收缩为微信单通道：新增 WorkItem（任务）与任务焦点，普通消息继续当前任务；自然语言支持“任务/进度”“新任务”“继续 X”“停一下”“同意/拒绝”，编号菜单用于切换任务。iMessage 适配器和 JEV 路由已移除，桌面端保留。
+
+软件更新：设置页和菜单栏提供“检查更新”，后台每小时检查 GitHub Releases；下载当前架构 DMG，校验 SHA256 和应用版本后退出替换并重新打开。
+
+设计与图：[微信单通道 Super Agent 改造方案](wechat-only-super-agent-plan.md)、[Mermaid 图](wechat-super-agent-diagrams.md)。
+
+验证：`bridge` 230 项测试通过；macOS `swift test` 68 项通过（3 项跳过）。以下较早条目保留为历史记录；其中 iMessage、JEV 和“两通道”描述已不代表当前实现。
 
 用户已确认扩展到原应用已有项目与会话，Claude 范围为 Claude Code。Codex 从本机 App Server 读取项目／线程；Claude Code 使用官方 Agent SDK 读取本地会话记录，发送时恢复原 ID。浏览不会执行任务，其他窗口占用时不强制接管。早期执行范围保留在 [ADR 003](decisions/003-managed-codex-runtime.md)。
 
 ## 当前实现
 
-2026-11-03 连接器阶段 A：新增 Composio BYOK、钥匙串保存、动态连接器目录、系统 Web 认证、账号断开、按 Agent 授权与操作策略，以及符合 macOS HIG 的独立三栏连接器窗口。Agent 工具搜索和执行仍处于后续阶段，当前不会把连接器账号直接暴露给 Agent。设计与后续门槛见 [连接器设计方案](connectors-design.md)。
+连接器阶段 A：Composio BYOK、钥匙串保存、动态连接器目录、系统 Web 认证、账号断开和预配置 Agent 授权与操作策略。设置页在消息通道和通用之间提供连接器分类，可搜索和分页浏览服务、连接及管理账号。Agent 工具搜索和执行仍处于后续阶段，当前不会把连接器账号直接暴露给 Agent；实际服务的认证方式取决于 Composio 提供的配置，尚未逐一完成真实账号验证。设计与后续门槛见 [连接器设计方案](connectors-design.md)。
 
 | 部分 | 实际行为 | 验证边界 |
 | --- | --- | --- |

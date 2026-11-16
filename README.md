@@ -1,7 +1,7 @@
 <div align="center">
   <img src="docs/assets/brand/chat-bridge-app-icon.png" alt="Chat Bridge" width="112" height="112">
   <h1>Chat Bridge</h1>
-  <p>Your desktop AI conversations, in WeChat and iMessage.</p>
+  <p>Your desktop AI conversations, in WeChat.</p>
   <p><strong>English</strong> · <a href="README.zh-CN.md">中文</a> · <a href="README.ja.md">日本語</a> · <a href="README.ko.md">한국어</a> · <a href="README.fr.md">Français</a> · <a href="README.es.md">Español</a></p>
 
 ![macOS](https://img.shields.io/badge/macOS-13.5%2B-17191C?style=flat-square)
@@ -12,13 +12,13 @@
 
 ## See it in action
 
-<p align="center"><img src="docs/assets/chat-bridge-intro.gif" alt="Chat Bridge's first-launch intro: the icon settles into the menu bar, a handheld iPhone sends tasks to Claude over iMessage and to Codex over WeChat while the Mac mirrors each step, then a follow-up goes out from the menu bar panel" width="960"></p>
+<p align="center"><img src="docs/assets/chat-bridge-intro.gif" alt="Chat Bridge's first-launch intro: the icon settles into the menu bar, a handheld iPhone sends tasks to Codex over WeChat while the Mac mirrors each step, then a follow-up goes out from the menu bar panel" width="960"></p>
 <p align="center"><a href="docs/assets/chat-bridge-intro.mp4">HD MP4 · pause to explore</a> · <a href="docs/assets/chat-bridge-intro-poster.png">Still preview</a></p>
 <p align="center"><sub>The app's 54-second first-launch intro, recorded from its native SwiftUI views (Chinese UI). Tasks and replies are fictional; no live accounts are connected.</sub></p>
 
 ## Step away from your Mac. Keep the conversation going.
 
-Chat Bridge is a macOS menu bar app that connects WeChat and iMessage to the AI agents on your Mac. Start a task from your phone, continue an existing conversation, and receive the result in the same chat.
+Chat Bridge is a macOS menu bar app that connects WeChat to the AI agents on your Mac. Start a task from your phone, continue an existing conversation, and receive the result in the same chat.
 
 - **Pick up where you left off** — Continue existing conversations with their project and context.
 - **Say what you need** — Create a conversation, choose a project, or switch agents in plain language.
@@ -63,7 +63,7 @@ The build uses an Apple Development signing certificate by default. Without one,
 </details>
 
 1. **Connect an agent** — Install and sign in to your preferred agent on the Mac, then check its status in Chat Bridge.
-2. **Pair a messaging channel** — Open Settings → Messaging Channels. Scan the WeChat QR code or complete iMessage pairing.
+2. **Pair a messaging channel** — Open Settings → Messaging Channels. Scan the WeChat QR code.
 3. **Send your first message** — Configure a routing provider and enable automatic selection in Smart Routing. Tell the agent what you need from your phone, or chat directly in the menu bar panel.
 
 Without smart routing, choose a destination in the app or use text menus and manual commands.
@@ -76,8 +76,8 @@ Uses each agent's local sign-in and model configuration. Start a conversation in
 
 ## Before you start
 
-- Requires **macOS 13.5+**, with the Mac awake, online, and Chat Bridge running. iMessage also requires Messages sign-in and Full Disk Access; compatibility with older Messages databases still needs validation.
-- On your Mac, type **@filename** to search and attach local files from inline suggestions; the paperclip on the left opens the same search (up to 10 per message, 50 MiB each). Replies quote the original message. WeChat and iMessage input remains **text only**; incoming voice, images, and attachments are not executed as tasks. Eligible output files can be returned to the originating chat.
+- Requires **macOS 13.5+**, with the Mac awake, online, and Chat Bridge running.
+- On your Mac, type **@filename** to search and attach local files from inline suggestions; the paperclip on the left opens the same search (up to 10 per message, 50 MiB each). Replies quote the original message. WeChat input remains **text only**; incoming voice, images, and attachments are not executed as tasks. Eligible output files can be returned to the originating chat.
 - Messages can trigger file changes, commands, and network access. Codex and Claude Code conversations created or resumed by Bridge use full execution permissions by default. Pair only your own trusted accounts.
 - Conversation state stays on your Mac. Messages are processed by your selected messaging and agent services; smart routing also sends the message and relevant destination context to your configured routing provider.
 - Uncertain sends are not automatically retried or executed again. The app interface, system receipts, and the intro above are currently primarily Chinese.

@@ -80,6 +80,41 @@ test("connector policies reject unknown agents and persist valid access", async 
   assert.equal(value.controller.summary().availableByAgent.codex, 1);
 });
 
+test("account pagination includes later accounts and rejects repeated cursors", async () => {
+  const urls: string[] = [];
+  const mock = (async (url: string | URL | Request) => {
+    const parsed = new URL(String(url)); urls.push(parsed.searchParams.get("cursor") ?? "first");
+    return parsed.searchParams.has("cursor") ? response({ items: [{ id: "ca_2", status: "ACTIVE", toolkit: { slug: "slack" } }] }) :
+      response({ items: [{ id: "ca_1", status: "INITIALIZING", toolkit: { slug: "github" } }], next_cursor: "page2" });
+  }) as typeof fetch;
+  const value = fixture(mock, { apiKey: "cmp_test" });
+  const accounts = await value.controller.listAccounts();
+  assert.deepEqual(accounts.map((account) => account.id), ["ca_1", "ca_2"]);
+  assert.equal(accounts[0]?.status, "connecting");
+  assert.ok(urls.includes("page2"));
+});
+
+test("ambiguous auth configs do not start or guess a connection", async () => {
+  let linkCalls = 0;
+  const mock = (async (url: string | URL | Request) => {
+    if (String(url).includes("/auth_configs?")) return response({ items: [{ id: "ac_1" }, { id: "ac_2" }] });
+    if (String(url).includes("/connected_accounts/link")) linkCalls++;
+    return response({ items: [] });
+  }) as typeof fetch;
+  const value = fixture(mock, { apiKey: "cmp_test" });
+  await assert.rejects(value.controller.link("github", "chatbridge-connectors://complete"), { code: "CONNECTOR_CONFIG_AMBIGUOUS" });
+  assert.equal(linkCalls, 0);
+});
+
+test("provider errors never expose upstream text and requests refuse redirects", async () => {
+  const mock = (async (_url: string | URL | Request, init?: RequestInit) => {
+    assert.equal(init?.redirect, "error");
+    return response({ message: "secret-token-and-user-data" }, 500);
+  }) as typeof fetch;
+  const value = fixture(mock);
+  await assert.rejects(value.controller.save("cmp_test"), (error: Error) => !error.message.includes("secret-token"));
+});
+
 test("disconnect does not retry and clears the local policy", async () => {
   let deletes = 0;
   const mock = (async (url: string | URL | Request, init?: RequestInit) => {

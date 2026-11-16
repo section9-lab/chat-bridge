@@ -73,8 +73,8 @@ struct AgentsArt: View {
     }
 }
 
-/// Routing: a numbered text menu, or Jev reading plain language and choosing the agent, the session and whether to start one.
-struct RoutingArt: View {
+/// Tasks: a numbered menu and natural-language task focus.
+struct TaskArt: View {
     var smart: Bool
     @State private var shown = 0
     var body: some View {
@@ -83,7 +83,7 @@ struct RoutingArt: View {
                 HStack(spacing: 9) {
                     AppTile(size: 24).clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
                     Text("Chat Bridge").font(.system(size: 13, weight: .semibold))
-                    Text(smart ? "智能路由" : "文本菜单").font(.system(size: 11)).foregroundStyle(.secondary)
+                    Text(smart ? "任务焦点" : "任务菜单").font(.system(size: 11)).foregroundStyle(.secondary)
                         .padding(.horizontal, 7).padding(.vertical, 2).background(.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
                     Spacer()
                 }
@@ -164,7 +164,7 @@ struct RoutingArt: View {
     }
     private func decision(_ rows: [(String, String, String?)]) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Label("Jev 路由判断", systemImage: "sparkles").font(.system(size: 11, weight: .semibold)).foregroundStyle(OnboardingPalette.accent)
+            Label("任务判断", systemImage: "sparkles").font(.system(size: 11, weight: .semibold)).foregroundStyle(OnboardingPalette.accent)
             ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
                 HStack(spacing: 6) {
                     Text(row.0).foregroundStyle(.secondary).frame(width: 44, alignment: .leading)

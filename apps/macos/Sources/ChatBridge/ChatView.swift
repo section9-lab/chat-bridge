@@ -114,7 +114,6 @@ struct ChatView: View {
         let session = service.state.selection.sessionId
         let inSession = service.state.jobs.filter { $0.target.agent == service.viewedAgent && ($0.sessionId ?? $0.target.sessionId) == session }
         return service.state.jobs.filter { job in
-            if ["routing", "awaiting_route"].contains(job.status) { return true }
             guard inSession.contains(where: { $0.id == job.id }) else { return false }
             if ["completed", "cancelled"].contains(job.status) { return false }
             if ["failed", "interrupted"].contains(job.status) { return inSession.first?.id == job.id }

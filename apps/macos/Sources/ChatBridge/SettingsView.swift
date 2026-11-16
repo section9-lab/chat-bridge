@@ -62,12 +62,12 @@ struct SettingsSegments<Value: Hashable>: View {
 
 struct SettingsView: View {
     @ObservedObject var service: BridgeService
+    @ObservedObject var updates: UpdateController
     @Environment(\.colorScheme) private var colorScheme
     var openAgent: (String) -> Void
     var close: () -> Void
     var showConnectors: () -> Void = {}
     var showOnboarding: () -> Void = {}
-    @State private var tab = 0
     @State private var rename: [String: String] = [:]
     @State private var loginEnabled = SMAppService.mainApp.status == .enabled
     @State private var loginError: String?
@@ -89,17 +89,19 @@ struct SettingsView: View {
             }
             .padding(.horizontal, 28).padding(.top, 25).padding(.bottom, 20)
             HStack {
-                SettingsSegments(label: "设置分类", options: [(0, "Agent"), (3, "智能路由"), (1, "消息通道"), (2, "通用")], selection: $tab)
-                    .frame(width: 390)
+                SettingsSegments(label: "设置分类", options: [(0, "Agent"), (1, "消息通道"), (4, "连接器"), (2, "通用")], selection: $service.settingsTab)
+                    .frame(maxWidth: 500)
                 Spacer()
             }.padding(.horizontal, 28).padding(.bottom, 20)
             separator
+            if service.settingsTab == 4 {
+                ConnectorSettings(service: service)
+            } else {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 22) {
-                        if tab == 0 { agents }
-                        else if tab == 1 { channels }
-                        else if tab == 3 { RoutingSettings(service: service) }
+                        if service.settingsTab == 0 { agents }
+                        else if service.settingsTab == 1 { channels }
                         else { general }
                         if let error = service.lastError {
                             Label(error, systemImage: "info.circle")
@@ -111,13 +113,14 @@ struct SettingsView: View {
                 }
                 .scrollContentBackground(.hidden)
                 .onChanged(of: service.state.channels?.weixin.qrContent) { _ in
-                    if tab == 1 { proxy.scrollTo("weixin", anchor: .top) }
+                    if service.settingsTab == 1 { proxy.scrollTo("weixin", anchor: .top) }
                 }
                 .onChanged(of: service.channelErrors) { errors in
-                    if tab == 1, let channel = ["imessage", "weixin"].first(where: { errors[$0] != nil }) {
-                        proxy.scrollTo(channel, anchor: .top)
+                    if service.settingsTab == 1, errors["weixin"] != nil {
+                        proxy.scrollTo("weixin", anchor: .top)
                     }
                 }
+            }
             }
             separator
             HStack(spacing: 12) {
@@ -228,7 +231,7 @@ struct SettingsView: View {
             }
         }.padding(.vertical, 9)
     }
-    /// Whether the phone channels and smart routing may use this agent; at least one stays on.
+    /// Whether the phone channel may use this agent; at least one stays on.
     private func enabledToggle(_ agent: Agent) -> some View {
         let enabled = service.state.preferences.enabledAgents
         return Toggle("手机可用", isOn: Binding(get: { enabled.contains(agent.id) }, set: { on in
@@ -237,7 +240,7 @@ struct SettingsView: View {
         }))
         .toggleStyle(.switch).controlSize(.mini).labelsHidden()
         .disabled(!service.isRunning || (enabled == [agent.id]))
-        .help(enabled.contains(agent.id) ? "手机和智能路由可以使用 " + agent.name : "手机和智能路由不会使用 " + agent.name)
+        .help(enabled.contains(agent.id) ? "手机可以使用 " + agent.name : "手机不会使用 " + agent.name)
         .accessibilityLabel(agent.name + " 手机可用")
     }
     private func saveName(_ agent: Agent) {
@@ -251,16 +254,10 @@ struct SettingsView: View {
     }
     private var channels: some View {
         VStack(alignment: .leading, spacing: 23) {
-            sectionHeading("消息通道", detail: "从常用的消息应用，继续同一个 Agent 会话。")
-            IMessageSettings(service: service).id("imessage")
-            separator
+            sectionHeading("消息通道", detail: "从微信继续当前任务，或开始一个新任务。")
             WeixinSettings(service: service).id("weixin")
             separator
-            sectionHeading("更多通道")
-            channelRow("Telegram", symbol: "paperplane", status: "即将支持", detail: "后续提供")
-            channelRow("WhatsApp", symbol: "phone.bubble", status: "即将支持", detail: "后续提供")
-            separator
-            Label("通道共用当前 Agent 与会话，回复将返回发起消息的通道。", systemImage: "arrow.triangle.branch")
+            Label("普通消息继续当前任务；说“任务”切换，说“新任务”开始新的。回复会返回发起消息的通道。", systemImage: "arrow.triangle.branch")
                 .font(.system(size: 11)).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true).lineSpacing(3)
             if !service.state.jobs.isEmpty {
@@ -298,6 +295,26 @@ struct SettingsView: View {
             }
         }
     }
+    private var softwareUpdate: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionHeading("软件更新", detail: "每小时自动检查一次；也可以随时手动检查。")
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("当前版本 \(AppVersion.current)").font(.system(size: 13, weight: .medium))
+                    Text(updates.status.label).font(.system(size: 11)).foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+                if updates.status.isBusy {
+                    ProgressView().controlSize(.small)
+                } else if let release = updates.status.release {
+                    Button("升级到 \(release.version)") { updates.install(release) }.buttonStyle(SettingsButtonStyle())
+                } else {
+                    Button("检查更新") { Task { await updates.check(manual: true) } }.buttonStyle(SettingsButtonStyle())
+                }
+            }
+        }
+    }
+
     private var general: some View {
         VStack(alignment: .leading, spacing: 24) {
             sectionHeading("运行偏好")
@@ -338,18 +355,6 @@ struct SettingsView: View {
             separator
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
-                    Text("连接器")
-                    Spacer()
-                    Button("管理连接器…", action: showConnectors).buttonStyle(SettingsButtonStyle())
-                }
-                Text(service.state.connectors?.provider.configured == true ?
-                    "已连接 \(service.state.connectors?.connectedCount ?? 0) 个账号。凭据保存在钥匙串中；Agent 工具执行仍在验收。" :
-                    "连接外部服务并预先配置 Agent 访问范围。")
-                    .font(.system(size: 12)).foregroundStyle(.secondary)
-            }
-            separator
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
                     Text("新手引导")
                     Spacer()
                     Button("打开引导", action: showOnboarding).buttonStyle(SettingsButtonStyle())
@@ -357,6 +362,8 @@ struct SettingsView: View {
                 Text("重新播放介绍，再走一遍 Agent、消息通道和路由方式的设置。")
                     .font(.system(size: 12)).foregroundStyle(.secondary)
             }
+            separator
+            softwareUpdate
             separator
             VStack(alignment: .leading, spacing: 13) {
                 sectionHeading("本地数据")

@@ -100,7 +100,6 @@ Node.js and the local bridge service are included. Install and sign in to your p
 
 These builds are ad-hoc signed and **not notarized** by Apple. If macOS blocks opening the app,
 review the download and use **System Settings → Privacy & Security → Open Anyway** for this app.
-iMessage requires Full Disk Access and Messages sign-in. App updates may require granting Full Disk Access again.
 WeChat requires pairing. Keep your Mac awake, online, and Chat Bridge running.
 
 Built from `{commit}`. Native builds and bundled-service checks passed on both architectures.

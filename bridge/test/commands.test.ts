@@ -28,4 +28,6 @@ test("an unrecognized slash command falls through as an ordinary message", () =>
 test("project and pagination commands can be used without internal identifiers", () => {
   assert.deepEqual(parseInput("/project"), { kind: "command", name: "project", argument: "" });
   assert.deepEqual(parseInput("/more"), { kind: "command", name: "more", argument: "" });
+  assert.deepEqual(parseInput("/tasks"), { kind: "command", name: "tasks", argument: "" });
+  assert.deepEqual(parseInput("/new"), { kind: "command", name: "new", argument: "" });
 });

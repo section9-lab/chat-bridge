@@ -21,14 +21,15 @@ struct Desktop {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let service = BridgeService()
+    let updates = UpdateController()
     private let desktop: Desktop
     private var statusItem: NSStatusItem!
     private var panel: ChatPanel?
     private var mainWindow: NSWindow?
     private var settingsWindow: NSWindow?
-    private var connectorWindow: NSWindow?
     private var localMonitor: Any?
     private var globalMonitor: Any?
+    private var updateItem: NSMenuItem?
     private lazy var onboarding = OnboardingCoordinator(service: service,
         statusItemFrame: { [weak self] in self?.statusItem?.button?.window?.frame },
         completed: { [weak self] in if self?.mainWindow?.isVisible != true { self?.desktop.setActivationPolicy(.accessory) } },
@@ -57,6 +58,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         onboardingItem.target = self
         appMenu.addItem(onboardingItem)
         appMenu.addItem(.separator())
+        let updateItem = NSMenuItem(title: "检查更新…", action: #selector(checkForUpdates), keyEquivalent: "")
+        updateItem.target = self
+        appMenu.addItem(updateItem)
+        self.updateItem = updateItem
+        appMenu.addItem(.separator())
         let quitItem = NSMenuItem(title: "退出 Chat Bridge", action: #selector(quitApp), keyEquivalent: "q")
         quitItem.target = self
         appMenu.addItem(quitItem)
@@ -79,6 +85,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         button.action = #selector(toggleConversation)
         button.sendAction(on: .leftMouseUp)
         service.start()
+        updates.onChange = { [weak self] status in self?.updateMenuItem(status) }
+        updates.start()
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .keyDown]) { [weak self] event in
             guard let self else { return event }
             if event.type == .keyDown && event.keyCode == 53 && self.panel?.isVisible == true {
@@ -102,6 +110,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             name: NSWorkspace.didWakeNotification, object: nil)
         if OnboardingCoordinator.shouldShow { onboarding.begin() } else { showMainWindow() }
     }
+    @objc private func checkForUpdates() {
+        Task {
+            let status = await updates.check(manual: true)
+            switch status {
+            case .available(let release):
+                let alert = NSAlert()
+                alert.messageText = "发现新版本 \(release.version)"
+                alert.informativeText = "当前版本 \(AppVersion.current)。下载并安装后，Chat Bridge 会退出，替换完成后自动重新打开。"
+                alert.addButton(withTitle: "下载并安装")
+                alert.addButton(withTitle: "稍后")
+                if alert.runModal() == .alertFirstButtonReturn { updates.install(release) }
+            case .upToDate(let version):
+                let alert = NSAlert()
+                alert.messageText = "已是最新版本"
+                alert.informativeText = "当前版本 \(version)。"
+                alert.addButton(withTitle: "好")
+                alert.runModal()
+            case .failed(let message):
+                let alert = NSAlert()
+                alert.messageText = "检查更新失败"
+                alert.informativeText = message
+                alert.addButton(withTitle: "好")
+                alert.runModal()
+            default:
+                break
+            }
+        }
+    }
+    private func updateMenuItem(_ status: UpdateStatus) {
+        switch status {
+        case .checking: updateItem?.title = "正在检查更新…"
+        case .available(let release): updateItem?.title = "升级到 \(release.version)…"
+        case .downloading: updateItem?.title = "正在下载更新…"
+        case .installing: updateItem?.title = "正在安装更新…"
+        default: updateItem?.title = "检查更新…"
+        }
+        updateItem?.isEnabled = !status.isBusy
+    }
+
     @objc private func openOnboarding() {
         closeSettings()
         hidePanel()
@@ -212,7 +259,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 window.standardWindowButton(button)?.isHidden = true
             }
             window.isReleasedWhenClosed = false
-            window.contentView = NSHostingView(rootView: SettingsView(service: service,
+            window.contentView = NSHostingView(rootView: SettingsView(service: service, updates: updates,
                 openAgent: { [weak self] id in self?.toggleAgent(id) },
                 close: { [weak self] in self?.closeSettings() },
                 showConnectors: { [weak self] in self?.closeSettings(); self?.showConnectorCenter() },
@@ -231,33 +278,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         settingsWindow.orderOut(nil)
     }
     func showConnectorCenter() {
-        hidePanel()
-        desktop.setActivationPolicy(.regular)
-        if connectorWindow == nil {
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 980, height: 680),
-                styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
-            window.title = "连接器"
-            window.titlebarSeparatorStyle = .automatic
-            window.isReleasedWhenClosed = false
-            window.delegate = self
-            window.contentMinSize = NSSize(width: 820, height: 600)
-            window.contentView = NSHostingView(rootView: ConnectorCenterView(service: service))
-            window.center()
-            desktop.prepare(window)
-            connectorWindow = window
-        }
-        if connectorWindow?.isMiniaturized == true { connectorWindow?.deminiaturize(nil) }
-        connectorWindow?.makeKeyAndOrderFront(nil)
-        desktop.activate()
+        service.settingsTab = 4
+        showSettings()
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func windowWillClose(_ notification: Notification) {
-        guard let window = notification.object as? NSWindow else { return }
-        if window === mainWindow { closeSettings() }
-        if window === mainWindow || window === connectorWindow {
-            let otherVisible = window === mainWindow ? connectorWindow?.isVisible == true : mainWindow?.isVisible == true
-            if !otherVisible { desktop.setActivationPolicy(.accessory) }
-        }
+        guard let window = notification.object as? NSWindow, window === mainWindow else { return }
+        closeSettings()
+        desktop.setActivationPolicy(.accessory)
     }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         showMainWindow()
@@ -268,7 +296,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func openMain() { showMainWindow() }
     @objc private func quitApp() {
         closeSettings()
-        connectorWindow?.close()
         NSApp.terminate(nil)
     }
     func applicationWillTerminate(_ notification: Notification) {

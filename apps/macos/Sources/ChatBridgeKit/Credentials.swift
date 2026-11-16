@@ -22,18 +22,6 @@ public struct WeixinSecret: Codable {
     }
 }
 
-public struct RoutingSecret: Codable {
-    public let apiKey: String
-    enum Failure: Error { case invalidCredential }
-    public static func validatedData(_ data: Data) throws -> Data {
-        guard data.count <= 8192 else { throw Failure.invalidCredential }
-        let value = try JSONDecoder().decode(Self.self, from: data)
-        guard !value.apiKey.isEmpty, value.apiKey.utf8.count <= 4096,
-              value.apiKey.unicodeScalars.allSatisfy({ $0.value > 32 && $0.value < 127 }) else { throw Failure.invalidCredential }
-        return try JSONEncoder().encode(value)
-    }
-}
-
 public struct ConnectorSecret: Codable {
     public let apiKey: String
     enum Failure: Error { case invalidCredential }

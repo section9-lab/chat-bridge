@@ -263,9 +263,9 @@ test("multiline names cannot create additional numbered rows", async () => {
 test("the bare project command refreshes the catalog through channel preparation", async () => {
   const f = fixture();
   try {
-    f.core.bindChannel("imessage", "account", "owner");
-    const events = await f.core.prepareEvents([{ origin: remote("alias"), text: "/project" }]);
-    const result = f.core.ingestBatch("imessage", "account", "cursor", events);
+    f.core.bindChannel("weixin", "account", "owner");
+    const events = await f.core.prepareEvents([{ origin: remote("alias", "weixin"), text: "/project" }]);
+    const result = f.core.ingestBatch("weixin", "account", "cursor", events);
     assert.equal(result[0]?.message, "请回复编号进行选择：\n01 Existing project\n02 无项目");
     assert.equal(f.core.state().jobs.length, 0);
   } finally { f.close(); }

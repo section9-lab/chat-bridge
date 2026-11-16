@@ -33,7 +33,7 @@ export function splitReply(text: string): string[] {
   return parts.length ? parts : ["（空回复）"];
 }
 
-// iMessage shows text as is, so an agent's Markdown would arrive as raw ** and ``` marks.
+// Text-only phone channels show raw Markdown markers, so strip them before delivery.
 export function plainText(markdown: string): string {
   const out: string[] = [];
   let fenced = false;

@@ -19,7 +19,6 @@ fi
 cd "$BRIDGE_ROOT/bridge"
 # Claude Code uses the user's installed CLI; do not bundle a second optional engine.
 npm ci --omit=optional --no-audit --no-fund
-node "$BRIDGE_ROOT/scripts/patch-imessage.mjs"
 npm run build
 npm test
 cd "$BRIDGE_ROOT/apps/macos"
@@ -43,7 +42,6 @@ cp "$BRIDGE_ROOT/bridge/package.json" "$BRIDGE_ROOT/bridge/package-lock.json" "$
 cp -R "$BRIDGE_ROOT/bridge/dist/src" "$BRIDGE_BUNDLE/Contents/Resources/service/dist/"
 cd "$BRIDGE_BUNDLE/Contents/Resources/service"
 npm ci --omit=dev --omit=optional --no-audit --no-fund
-node "$BRIDGE_ROOT/scripts/patch-imessage.mjs"
 cp "$BRIDGE_ROOT/LICENSE" "$BRIDGE_BUNDLE/Contents/Resources/LICENSE"
 if [ -n "${CHAT_BRIDGE_RELEASE_TAG:-}" ]; then
   python3 "$BRIDGE_ROOT/scripts/release.py" stamp "$BRIDGE_BUNDLE" "$CHAT_BRIDGE_RELEASE_TAG" "$CHAT_BRIDGE_BUILD_NUMBER"

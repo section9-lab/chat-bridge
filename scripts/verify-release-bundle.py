@@ -29,7 +29,7 @@ assert lock["version"] == lock["packages"][""]["version"] == version["version"],
 
 required = ["MacOS/ChatBridge", "Resources/runtime/node", "Resources/runtime/LICENSE",
             "Resources/AppIcon.icns", "Resources/Assets.car", "Resources/LICENSE",
-            "Resources/ChatBridge_ChatBridge.bundle/AgentIcons/codex-light.png",
+            "Resources/ChatBridge_ChatBridge.bundle/Contents/Resources/AgentIcons/codex-light.png",
             "Resources/service/dist/src/main.js",
             "Resources/service/node_modules/better-sqlite3/build/Release/better_sqlite3.node"]
 for name in required:

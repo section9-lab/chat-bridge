@@ -143,27 +143,6 @@ test("attachment collection excludes outside files, symlink escapes and source-c
   } finally { f.close(); }
 });
 
-test("project binding during a follow-up inference keeps the same session executable", async () => {
-  const f = fixture(true);
-  let finish!: () => void, route!: () => void, deciding = false;
-  const finished = new Promise<void>(resolve => { finish = resolve; }), decided = new Promise<void>(resolve => { route = resolve; });
-  const original = f.adapter.sendTurn;
-  f.adapter.sendTurn = async (...args) => { const result = await original(...args); await finished; return result; };
-  try {
-    f.text(`[项目](<${f.project}>)`);
-    const first = f.send("创建游戏");
-    while (!f.sends.length) await new Promise(resolve => setImmediate(resolve));
-    f.core.setRoutingSettings({ mode: "auto" });
-    f.core.routeDecision = async () => { deciding = true; await decided; return { choice: "continue", confidence: 1, probabilities: { continue: 1 } }; };
-    const next = f.send("接着测试");
-    while (!deciding) await new Promise(resolve => setImmediate(resolve));
-    finish(); await first; route(); await next;
-    assert.equal(f.sends.length, 2);
-    assert.equal(f.sends[1].session.projectId, "native-project");
-    assert.equal(f.sends[1].session.nativeId, f.sends[0].session.nativeId);
-  } finally { finish(); route(); f.close(); }
-});
-
 test("a changed attachment snapshot is rejected before external transmission", () => {
   const f = fixture();
   try {

@@ -1,7 +1,7 @@
 <div align="center">
   <img src="docs/assets/brand/chat-bridge-app-icon.png" alt="Chat Bridge" width="112" height="112">
   <h1>Chat Bridge</h1>
-  <p>把电脑上的 AI 会话，带进微信和 iMessage。</p>
+  <p>把电脑上的 AI 会话，带进微信。</p>
   <p><a href="README.md">English</a> · <strong>中文</strong> · <a href="README.ja.md">日本語</a> · <a href="README.ko.md">한국어</a> · <a href="README.fr.md">Français</a> · <a href="README.es.md">Español</a></p>
 
 ![macOS](https://img.shields.io/badge/macOS-13.5%2B-17191C?style=flat-square)
@@ -12,13 +12,13 @@
 
 ## 看它如何工作
 
-<p align="center"><img src="docs/assets/chat-bridge-intro.gif" alt="Chat Bridge 首次启动的引导动画：图标落进菜单栏；手持 iPhone 用 iMessage 让 Claude 新建项目、用微信让 Codex 做调研，Mac 同步显示每一步；最后从菜单栏面板继续发送" width="960"></p>
+<p align="center"><img src="docs/assets/chat-bridge-intro.gif" alt="Chat Bridge 首次启动的引导动画：图标落进菜单栏；手持 iPhone 用微信让 Codex 做调研，Mac 同步显示每一步；最后从菜单栏面板继续发送" width="960"></p>
 <p align="center"><a href="docs/assets/chat-bridge-intro.mp4">高清 MP4 · 可暂停查看</a> · <a href="docs/assets/chat-bridge-intro-poster.png">静态预览</a></p>
 <p align="center"><sub>应用首次启动时的 54 秒引导动画，直接录制原生 SwiftUI 界面；任务和回复为演示数据，不连接真实账号。</sub></p>
 
 ## 离开电脑，也能接着聊
 
-Chat Bridge 是一款 macOS 菜单栏应用。把微信或 iMessage 连接到 Mac 上的 AI Agent，就能从手机发起任务、继续已有会话，让结果回到原来的聊天里。
+Chat Bridge 是一款 macOS 菜单栏应用。把微信连接到 Mac 上的 AI Agent，就能从手机发起任务、继续已有会话，让结果回到原来的聊天里。
 
 - **接着聊**：继续电脑上的已有会话，保留项目和上下文。
 - **直接说意图**：新建会话、选择项目、切换 Agent，用一句话完成。
@@ -63,7 +63,7 @@ open "dist/Chat Bridge.app"
 </details>
 
 1. **连接 Agent** — 在 Mac 上安装并登录常用 Agent，在 Chat Bridge 里检查连接状态。
-2. **配对消息通道** — 打开「设置 → 消息通道」，用微信扫码，或完成 iMessage 配对。
+2. **配对消息通道** — 打开「设置 → 消息通道」，用微信扫码。
 3. **发出第一条消息** — 在「智能路由」中配置服务并启用自动选择，然后从手机说出你想做的事；也可直接在菜单栏浮窗中聊天。
 
 不启用智能路由时，可以在应用里选择目标，或通过文本菜单与手动命令切换。
@@ -76,8 +76,8 @@ open "dist/Chat Bridge.app"
 
 ## 使用前了解
 
-- 需要 **macOS 13.5+**，并保持 Mac 开机、联网和 Chat Bridge 运行。iMessage 还需要 Messages 登录及完全磁盘访问权限；旧系统数据库兼容性仍需验证。
-- 桌面输入框输入 **@文件名** 即可搜索并从候选列表添加文件，左侧回形针也可进入搜索（每条最多 10 个，每个不超过 50 MiB），回复会引用原始消息。微信和 iMessage 仍仅支持**文字输入**，收到的语音、图片和附件不会作为任务执行；符合要求的成果文件可发送回原通道。
+- 需要 **macOS 13.5+**，并保持 Mac 开机、联网和 Chat Bridge 运行。
+- 桌面输入框输入 **@文件名** 即可搜索并从候选列表添加文件，左侧回形针也可进入搜索（每条最多 10 个，每个不超过 50 MiB），回复会引用原始消息。微信仍仅支持**文字输入**，收到的语音、图片和附件不会作为任务执行；符合要求的成果文件可发送回原通道。
 - 连接后，消息可以触发文件修改、命令和网络访问。Bridge 创建或恢复的 Codex／Claude Code 会话默认允许完整执行权限，请只绑定自己的可信账号。
 - 会话状态保存在 Mac 本地；消息仍经所选通道与 Agent 服务处理。开启智能路由后，消息和相关目标信息会交给你配置的路由服务判断。
 - 遇到发送结果不确定的情况，不会自动重复执行或重发。应用界面目前以中文为主。

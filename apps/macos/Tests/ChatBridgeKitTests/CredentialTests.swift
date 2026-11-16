@@ -3,18 +3,6 @@ import XCTest
 @testable import ChatBridgeKit
 
 final class CredentialTests: XCTestCase {
-    func testRoutingCredentialKeepsOnlyTheToken() throws {
-        let data = try JSONSerialization.data(withJSONObject: ["apiKey": "fixture-vercel-key", "endpoint": "https://untrusted.test"])
-        let result = try RoutingSecret.validatedData(data)
-        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: result) as? [String: String])
-        XCTAssertEqual(object, ["apiKey": "fixture-vercel-key"])
-    }
-    func testRoutingCredentialRejectsEmptyWhitespaceAndOversizedKeys() throws {
-        for key in ["", "key\nheader", "a key", "密钥", String(repeating: "x", count: 4097)] {
-            let data = try JSONSerialization.data(withJSONObject: ["apiKey": key])
-            XCTAssertThrowsError(try RoutingSecret.validatedData(data))
-        }
-    }
     func testConnectorCredentialKeepsOnlyTheAPIKey() throws {
         let data = try JSONSerialization.data(withJSONObject: ["apiKey": "cmp_fixture", "endpoint": "https://untrusted.test"])
         let result = try ConnectorSecret.validatedData(data)

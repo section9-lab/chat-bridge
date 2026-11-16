@@ -3,11 +3,11 @@ import { chmodSync, mkdirSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, sep } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { commandGuide, parseInput } from "./commands.js";
+import { parseIntent, type Intent } from "./intent.js";
 import { splitReply, taskNotice } from "./messages.js";
-import { defaultRoutingSettings, isConfidentLookup, isConfidentRoute, routingProviders, routeActions, type RouteAction, type RouteAnswer, type RoutingContext, type RoutingSettings } from "./routing.js";
 import { outputProject, snapshotOutputs, type OutputAttachment } from "./outputs.js";
-import { menuLine, renderTextMenu, textOptionIndex, type TextMenu, type TextOption, type TextView } from "./routing-options.js";
 import { attachmentLimit, importAttachments, type InputAttachment } from "./attachments.js";
+import { menuLine } from "./routing-options.js";
 
 export const agentIDs = ["codex", "claude", "cursor", "grok", "opencode", "hermes"] as const;
 export const agentNames: Record<string, string> = { codex: "Codex", claude: "Claude Code", cursor: "Cursor", grok: "Grok", opencode: "OpenCode", hermes: "Hermes Agent" };
@@ -31,24 +31,28 @@ export type Origin = {
 export type Preferences = { defaultAgent: string; pinned: string[]; keepAlive: boolean; names: Record<string, string>; enabledAgents: string[] };
 export type ConnectorPolicy = { accountId: string; allowedAgents: string[]; mode: "read-only" | "confirm-writes" | "allow-writes" };
 export type Job = {
-  id: string; origin: Origin; target: Target; text: string; status: string;
+  id: string; origin: Origin; target: Target; text: string; status: string; workItemId?: string;
   createdAt: string; queuedAt?: string; error?: string; sessionId?: string; turnId?: string; externalControl?: boolean;
-  routing?: { intent: number; version?: number; expiresAt?: number; options?: RouteAction[] };
-  routingDecision?: { provider: string; choice: string; confidence: number; probability: number; margin: number;
-    intent?: { choice: string; confidence: number; probability: number } };
   routeMessage?: string; receiptRevision?: number; followsJobId?: string;
   attachments?: InputAttachment[];
 };
 export type Receipt = { jobId?: string; message?: string };
 type Selection = Target & { sessionId: string | null; creationKey: string | null; version: number; engaged: boolean };
 type Creation = { key: string; target: Target; status: string; sessionId?: string };
+export type WorkItem = {
+  id: string; title: string; status: "open" | "running" | "waiting" | "blocked" | "done" | "cancelled";
+  target: Target; sessionId?: string; jobIds: string[]; createdAt: string; updatedAt: string;
+  closedAt?: string; lastJobId?: string;
+};
+type Focus = { workItemId: string | null; version: number };
+type TaskMenu = { entries: { id: string; title: string; status: string }[]; expiresAt: number;
+  focusVersion: number; bindingEpoch?: number };
 type Message = { id: string; sessionId: string; role: string; text: string; createdAt: string; source?: Origin["kind"];
-  replyTo?: { id: string; text: string }; attachments?: InputAttachment[] };
+  replyTo?: { id: string; text: string }; attachments?: InputAttachment[]; workItemId?: string };
 type ChoiceMenu = { kind: "project" | "session"; entries: { id: string; name: string }[]; offset: number;
   version: number; bindingEpoch?: number; expiresAt: number };
 export type OutboxEntry = { id: string; jobId?: string; origin: Origin; text: string; status: string; kind?: string; error?: string; batchId?: string; attachment?: OutputAttachment };
 export type ChannelEvent = { origin: Origin; text: string; sealedContext?: string; rejection?: string };
-export type IMessageConfiguration = { email: string; phone: string; chatId: string };
 export type ApprovalRequest = { kind: "command" | "fileChange" | "projectTrust"; detail: string; reason: string; cwd: string };
 export type AssistantMessageUpdate = { id: string; text: string; completed: boolean };
 export type TurnHooks = { queued?: () => void; started?: (turnId: string) => void; message?: (update: AssistantMessageUpdate) => void;
@@ -90,7 +94,6 @@ export class BridgeCore {
   private routeCatalogAt = 0;
   private probes: Record<string, AgentProbe> = {};
   private probing = new Map<string, Promise<AgentProbe>>();
-  private routeTail: Promise<void> = Promise.resolve();
   private agentTails = new Map<string, Promise<void>>();
   private runs = new Map<string, Promise<void>>();
   private batching = false;
@@ -99,7 +102,6 @@ export class BridgeCore {
   private stopping = new Set<string>();
   private flushText = new Map<string, (deliver: boolean) => void>();
   onChange: () => void = () => {};
-  routeDecision?: (context: RoutingContext, actions: RouteAction[]) => Promise<RouteAnswer>;
 
   constructor(private databasePath: string, private adapters: Record<string, AgentAdapter>) {
     mkdirSync(dirname(databasePath), { recursive: true, mode: 0o700 });
@@ -120,7 +122,6 @@ export class BridgeCore {
     if (!this.get<Preferences>("preferences")) {
       this.put("preferences", { defaultAgent: "codex", pinned: ["codex", "claude", "cursor"], keepAlive: false, names: {}, enabledAgents: [...agentIDs] });
       this.put("selection", this.fresh("codex"));
-      this.put("intent", 0);
     }
     this.db.transaction(() => {
       for (const job of this.list<Job>("job")) {
@@ -136,6 +137,27 @@ export class BridgeCore {
       for (const approval of this.list<Approval>("approval")) {
         if (approval.status === "pending") this.record("approval", approval.id, { ...approval, status: "expired" });
       }
+      let focus = this.get<Focus>("task-focus");
+      for (const job of this.list<Job>("job")) {
+        if (["routing", "awaiting_route"].includes(job.status)) {
+          job.status = "awaiting_confirmation";
+          job.error = "升级后不再使用模型路由，请重新发送或选择目标。";
+          this.record("job", job.id, job);
+        }
+        if (job.workItemId) continue;
+        const now = new Date().toISOString();
+        const item: WorkItem = { id: "K" + randomUUID().replaceAll("-", "").slice(0, 12),
+          title: job.text.replaceAll(/\s+/g, " ").trim().slice(0, 60) || "历史任务",
+          status: job.status === "completed" ? "done" : job.status === "cancelled" ? "cancelled" :
+            ["failed", "waiting_agent", "uncertain"].includes(job.status) ? "blocked" : "running",
+          target: job.target, ...(job.sessionId ? { sessionId: job.sessionId } : {}), jobIds: [job.id],
+          createdAt: job.createdAt, updatedAt: now, lastJobId: job.id };
+        this.record("work-item", item.id, item);
+        job.workItemId = item.id;
+        this.record("job", job.id, job);
+        if (!focus?.workItemId) focus = { workItemId: item.id, version: (focus?.version ?? 0) + 1 };
+      }
+      if (focus) this.put("task-focus", focus);
       for (const creation of this.list<Creation>("creation")) {
         if (creation.status === "creating") { creation.status = "uncertain"; this.record("creation", creation.key, creation); }
       }
@@ -199,6 +221,165 @@ export class BridgeCore {
   }
   private activeKey(target: Target): string { return "active:" + target.agent + ":" + target.mode; }
   private selection(): Selection { return this.get<Selection>("selection")!; }
+
+  private focusState(): Focus {
+    const stored = this.get<Focus>("task-focus") ?? { workItemId: null, version: 0 };
+    if (!stored.workItemId) return stored;
+    const item = this.find<WorkItem>("work-item", stored.workItemId);
+    return item && item.status !== "cancelled" ? stored : { workItemId: null, version: stored.version };
+  }
+  private setFocus(workItemId: string | null): void {
+    this.put("task-focus", { workItemId, version: this.focusState().version + 1 } satisfies Focus);
+  }
+  private workItem(id: string | null | undefined): WorkItem | undefined {
+    return id ? this.find<WorkItem>("work-item", id) : undefined;
+  }
+  private activateWorkItem(item: WorkItem): void {
+    this.setFocus(item.id);
+    this.select({ ...item.target, sessionId: item.sessionId ?? item.target.sessionId ?? null,
+      creationKey: item.sessionId ? null : item.target.creationKey ?? null });
+  }
+  private createWorkItem(text: string, target: Target): WorkItem {
+    const now = new Date().toISOString();
+    const item: WorkItem = { id: "K" + randomUUID().replaceAll("-", "").slice(0, 12),
+      title: text.replaceAll(/\s+/g, " ").trim().slice(0, 60) || "新任务", status: "open",
+      target: this.reserve({ ...target, sessionId: target.sessionId ?? null, creationKey: target.creationKey ?? null }),
+      jobIds: [], createdAt: now, updatedAt: now };
+    this.record("work-item", item.id, item);
+    this.setFocus(item.id);
+    return item;
+  }
+  private appendJob(item: WorkItem, text: string, origin: Origin, attachments: InputAttachment[] = []): Job {
+    const id = "J" + randomUUID().replaceAll("-", "").slice(0, 12);
+    const job: Job = { id, origin, text, status: "accepted", workItemId: item.id, createdAt: new Date().toISOString(),
+      target: { ...item.target, sessionId: item.sessionId ?? item.target.sessionId ?? null,
+        creationKey: item.sessionId ? null : item.target.creationKey ?? null },
+      ...(attachments.length ? { attachments } : {}) };
+    this.record("job", id, job);
+    item.jobIds.push(id);
+    item.lastJobId = id;
+    item.status = "running";
+    item.updatedAt = job.createdAt;
+    this.record("work-item", item.id, item);
+    return job;
+  }
+  private syncWorkItem(job: Job): void {
+    const item = this.workItem(job.workItemId);
+    if (!item) return;
+    if (job.sessionId) item.sessionId = job.sessionId;
+    item.target = { ...job.target, sessionId: item.sessionId ?? item.target.sessionId ?? null,
+      creationKey: item.sessionId ? null : job.target.creationKey ?? item.target.creationKey ?? null };
+    item.status = this.workItemStatus(item);
+    item.updatedAt = new Date().toISOString();
+    if (item.status === "done" || item.status === "cancelled") item.closedAt ??= item.updatedAt;
+    else delete item.closedAt;
+    this.record("work-item", item.id, item);
+  }
+  private workItemStatus(item: WorkItem): WorkItem["status"] {
+    const jobs = item.jobIds.map((id) => this.find<Job>("job", id)).filter((job): job is Job => Boolean(job));
+    if (!jobs.length) return "open";
+    if (jobs.some((job) => job.status === "awaiting_approval")) return "waiting";
+    if (jobs.some((job) => ["accepted", "preparing", "dispatching", "queued", "running", "stopping"].includes(job.status))) return "running";
+    const latest = jobs.at(-1)!;
+    if (["failed", "waiting_agent", "uncertain"].includes(latest.status)) return "blocked";
+    if (jobs.every((job) => job.status === "cancelled")) return "cancelled";
+    return "done";
+  }
+  private taskMenuKey(origin: Origin): string { return "task-menu:" + this.menuKey(origin); }
+  private clearTaskMenu(origin: Origin): void {
+    this.db.prepare("DELETE FROM records WHERE kind='task-menu' AND id=?").run(this.menuKey(origin));
+  }
+  private showTaskMenu(origin: Origin, note?: string): string {
+    const items = this.list<WorkItem>("work-item").filter((item) => item.status !== "cancelled");
+    if (!items.length) return (note ? note + "\n\n" : "") + "现在还没有任务。直接发消息就会开始一个。";
+    const current = this.focusState().workItemId;
+    const ordered = [...items].sort((a, b) => Number(b.id === current) - Number(a.id === current) ||
+      b.updatedAt.localeCompare(a.updatedAt));
+    const shown = ordered.slice(0, 8);
+    this.record("task-menu", this.menuKey(origin), { entries: shown.map((item) => ({ id: item.id, title: item.title, status: item.status })),
+      expiresAt: Date.now() + 10 * 60_000, focusVersion: this.focusState().version, bindingEpoch: origin.bindingEpoch } satisfies TaskMenu);
+    const labels: Record<WorkItem["status"], string> = { open: "待开始", running: "进行中", waiting: "等待你处理",
+      blocked: "受阻", done: "已完成", cancelled: "已取消" };
+    return (note ? note + "\n\n" : "") + "现在有 " + items.length + " 个任务：\n" +
+      shown.map((item, index) => (index + 1) + ". " + item.title + "（" + labels[item.status] + (item.id === current ? "，当前" : "") + "）").join("\n") +
+      "\n\n回复编号切换；回复“新任务”开始新的。";
+  }
+  private answerTaskMenu(text: string, origin: Origin): string | undefined {
+    if (!/^\d+$/.test(text.trim())) return;
+    const menu = this.find<TaskMenu>("task-menu", this.menuKey(origin));
+    if (!menu) return;
+    if (menu.expiresAt <= Date.now() || menu.bindingEpoch !== origin.bindingEpoch || menu.focusVersion !== this.focusState().version) {
+      this.clearTaskMenu(origin);
+      return "任务列表已过期，请回复“任务”重新查看。";
+    }
+    const index = Number(text.trim()) - 1, entry = menu.entries[index];
+    if (!Number.isSafeInteger(index) || !entry) return "请回复列表里的编号。";
+    const item = this.workItem(entry.id);
+    this.clearTaskMenu(origin);
+    if (!item || item.status === "cancelled") return "这个任务已经不可用，请回复“任务”重新查看。";
+    this.activateWorkItem(item);
+    return "已切换到「" + item.title + "」。";
+  }
+  private handleIntent(intent: Intent, origin: Origin, original: string): Receipt {
+    if (intent.kind === "task-list") return { message: this.showTaskMenu(origin) };
+    if (intent.kind === "new-task") {
+      this.clearTaskMenu(origin);
+      this.setFocus(null);
+      this.select({ ...this.selection(), sessionId: null, creationKey: null });
+      if (intent.text) {
+        const blocked = this.blockedAgent(origin, this.selection().agent);
+        if (blocked) return { message: blocked };
+        const item = this.createWorkItem(intent.text, this.selection());
+        return { jobId: this.appendJob(item, intent.text, origin).id };
+      }
+      return { message: "好，下一条消息创建新任务。\n当前默认目标：" + this.targetName(this.selection()) + "\n直接发消息即可；想换目标可以说“换成 Claude”或“换个项目”。" };
+    }
+    if (intent.kind === "switch-task") {
+      const query = intent.query.toLocaleLowerCase();
+      const matches = this.list<WorkItem>("work-item").filter((item) => item.status !== "cancelled" &&
+        (item.id.toLocaleLowerCase() === query || item.title.toLocaleLowerCase().includes(query)));
+      if (matches.length === 1) {
+        this.clearTaskMenu(origin);
+        this.activateWorkItem(matches[0]!);
+        return { message: "已切换到「" + matches[0]!.title + "」。" };
+      }
+      if (matches.length > 1) return { message: this.showTaskMenu(origin, "有多个任务匹配，请选择：") };
+      // "继续测试这个游戏" is ordinary follow-up text, not a failed task title lookup.
+      const item = this.workItem(this.focusState().workItemId) ?? this.createWorkItem(original, this.selection());
+      return { jobId: this.appendJob(item, original, origin).id };
+    }
+    if (intent.kind === "stop" || intent.kind === "cancel") {
+      const item = this.workItem(this.focusState().workItemId);
+      if (!item) return { message: "当前没有任务。" };
+      const active = item.jobIds.map((id) => this.find<Job>("job", id)).filter((job): job is Job => job !== undefined &&
+        ["accepted", "preparing", "dispatching", "queued", "running", "awaiting_approval", "stopping"].includes(job.status));
+      if (active.length !== 1) return { message: active.length ? "当前任务有多个执行轮次，请用 /stop 或 /cancel 指定任务编号。" : "当前任务没有正在执行的操作。" };
+      const result = this.command(intent.kind, active[0]!.id, origin);
+      return typeof result === "string" ? { message: result } : result;
+    }
+    if (intent.kind === "approval") {
+      const focused = this.workItem(this.focusState().workItemId);
+      const focusedIds = new Set(focused?.jobIds ?? []);
+      const pending = this.list<Approval>("approval").filter((approval) => approval.status === "pending" &&
+        (focusedIds.size ? focusedIds.has(approval.jobId) : true));
+      if (pending.length !== 1) return { message: pending.length ? "当前有多个待审批操作，请用 /approve 或 /deny 指定编号。" : "当前没有待审批的操作。" };
+      const result = this.command(intent.decision, pending[0]!.id, origin);
+      return typeof result === "string" ? { message: result } : result;
+    }
+    if (intent.kind === "target-agent") {
+      const result = this.command("agent", intent.agent, origin);
+      return typeof result === "string" ? { message: result } : result;
+    }
+    if (intent.kind === "project-menu") {
+      const result = this.command("project", "", origin);
+      return typeof result === "string" ? { message: result } : result;
+    }
+    if (intent.kind === "session-menu") {
+      const result = this.command("sessions", "", origin);
+      return typeof result === "string" ? { message: result } : result;
+    }
+    return { message: "没有识别这个操作。" };
+  }
   // Stores saved before the agent picker existed have no list: every agent stays enabled.
   private preferences(): Preferences {
     const stored = this.get<Preferences>("preferences")!;
@@ -252,44 +433,14 @@ export class BridgeCore {
     return {
       preferences: this.preferences(), probes: { ...this.probes },
       selection, projects: this.list<Project>("project"), sessions: this.list<Session>("session"), jobs: this.list<Job>("job").slice(-100).reverse(),
+      workItems: this.list<WorkItem>("work-item").slice(-100).reverse(), focus: this.focusState(),
       messages: this.list<Message>("message").filter((m) => m.sessionId === selection.sessionId),
       approvals: this.list<Approval>("approval").slice(-100).reverse(),
       bindings: this.db.prepare("SELECT kind FROM bindings").all() as { kind: string }[],
     };
   }
 
-  routingSettings(): RoutingSettings {
-    const settings = { ...defaultRoutingSettings, ...this.get<Partial<RoutingSettings>>("routing") };
-    return Object.hasOwn(routingProviders, settings.provider) ? settings : { ...settings, provider: "vercel", mode: "off" };
-  }
-  // True once any routing preference has ever been persisted — lets the service tell a genuinely
-  // fresh install apart from one that explicitly chose "off", without changing the bare data-layer default.
-  routingConfiguredOnce(): boolean {
-    return this.get<Partial<RoutingSettings>>("routing") !== undefined;
-  }
-  setRoutingSettings(patch: Partial<RoutingSettings>): void {
-    if (Object.keys(patch).some((key) => !["provider", "mode", "planning", "implementation", "research"].includes(key))) {
-      throw new BridgeError("INVALID_INPUT", "存在不支持的路由配置。");
-    }
-    const settings = { ...this.routingSettings(), ...patch };
-    if (!Object.hasOwn(routingProviders, settings.provider) || !["off", "confirm", "auto"].includes(settings.mode) || [settings.planning, settings.implementation, settings.research]
-      .some((agent) => agent !== "default" && !agentIDs.includes(agent as typeof agentIDs[number]))) {
-      throw new BridgeError("INVALID_INPUT", "请选择有效的路由方式和 Agent。");
-    }
-    this.put("routing", settings); this.changed();
-  }
   // Role preferences never route to a disabled agent; they fall back to the default agent instead.
-  private routingPreferences(): RoutingSettings {
-    const settings = this.routingSettings();
-    const pick = (agent: string) => agent === "default" || this.agentEnabled(agent) ? agent : "default";
-    return { ...settings, planning: pick(settings.planning), implementation: pick(settings.implementation), research: pick(settings.research) };
-  }
-  // Whether ordinary messages enter the Jev routing pipeline at all ("off" sends everything
-  // straight to the current target with no menu, no Jev call — an explicit user opt-out).
-  private smartRoutingEnabled(): boolean {
-    return this.routingSettings().mode !== "off";
-  }
-
   async probeAgent(agent: string): Promise<AgentProbe> {
     this.executable(agent);
     if (this.closed) throw new BridgeError("CLOSED", "本地服务已停止。");
@@ -393,21 +544,6 @@ export class BridgeCore {
     for (const event of events) {
       if (event.origin.kind !== "desktop" && (!this.isBound(event.origin) || event.origin.fromSelf)) { prepared.push(event); continue; }
       const parsed = parseInput(event.text);
-      if (!event.rejection && parsed.kind === "message" && !event.text.startsWith("//")) {
-        const code = /^(M[0-9a-f]{6})-(\d+)$/i.exec(parsed.text.trim());
-        const menus = this.textMenus(event.origin).filter(menu => !code || menu.id.toLowerCase() === code[1]!.toLowerCase());
-        const agents = new Set<string>();
-        for (const menu of menus) {
-          const index = textOptionIndex(code?.[2] ?? parsed.text.trim(), menu.entries), entry = index === undefined ? undefined : menu.entries[index];
-          if (entry?.kind === "view" && entry.view.stage === "agents") await this.probeAgents();
-          const candidate = entry?.kind === "view" ? entry.view.scope?.agent : entry?.kind === "action" ? entry.action.target?.agent : undefined;
-          if (candidate) agents.add(candidate);
-        }
-        for (const candidate of agents) {
-          try { await this.refreshCatalog(candidate); }
-          catch { /* Keep the original request and let the local picker explain the unavailable catalog. */ }
-        }
-      }
       if (!event.rejection && parsed.kind === "command") {
         if (parsed.name === "agent" && !parsed.argument) await this.probeAgents();
         if (parsed.name === "status" && this.adapters[agent]) await this.probeAgent(agent);
@@ -592,29 +728,28 @@ export class BridgeCore {
         result = typeof command === "string" ? { message: command } : command;
       }
       else {
-        const choice = attachments.length ? undefined : this.answerProjectTrust(parsed.text.trim(), origin) ?? this.answerCorrection(parsed.text.trim(), origin) ??
-          this.answerTextOptions(parsed.text.trim(), origin) ?? this.answerRouting(parsed.text.trim(), origin) ??
-          (/^\d+$/.test(parsed.text.trim()) ? this.chooseNumber(parsed.text.trim(), origin) : undefined);
+        const raw = parsed.text.trim();
+        const choice = attachments.length ? undefined : this.answerProjectTrust(raw, origin) ??
+          this.answerTaskMenu(raw, origin) ?? (/^\d+$/.test(raw) ? this.chooseNumber(raw, origin) : undefined);
         if (choice !== undefined) result = typeof choice === "string" ? { message: choice } : choice;
         else {
           this.clearMenu(origin);
           const outstanding = this.list<Job>("job").filter((job) => !["completed", "cancelled", "interrupted", "failed"].includes(job.status));
-          // The Mac app's explicit selection of a disabled agent is honored as is, without routing.
-          const routing = this.smartRoutingEnabled() && !text.startsWith("//") && (origin.kind !== "desktop" || this.agentEnabled(this.selection().agent));
-          const blocked = routing ? undefined : this.blockedAgent(origin, this.selection().agent);
+          const focused = this.workItem(this.focusState().workItemId);
           if (outstanding.length >= 100) {
             result = { message: "未接受：待执行任务已达到 100 个，请先处理已有任务。" };
-          } else if (blocked) {
-            result = { message: blocked };
           } else {
-            const target = routing ? { ...this.selection() } : this.reserve(this.selection());
-            if (!routing) this.put("selection", { ...target, engaged: true });
-            const id = "J" + randomUUID().replaceAll("-", "").slice(0, 12);
-            const job: Job = { id, origin, target, text: parsed.text, status: routing ? "routing" : "accepted", createdAt: new Date().toISOString(),
-              ...(attachments.length ? { attachments } : {}),
-              ...(routing ? { routing: { intent: this.get<number>("intent") ?? 0 } } : {}) };
-            this.record("job", id, job);
-            result = { jobId: id };
+            const intent = attachments.length || text.startsWith("//") ? undefined : parseIntent(parsed.text);
+            if (intent) result = this.handleIntent(intent, origin, parsed.text);
+            else {
+              const blocked = this.blockedAgent(origin, focused?.target.agent ?? this.selection().agent);
+              if (blocked) result = { message: blocked };
+              else {
+                const item = focused ?? this.createWorkItem(parsed.text, this.selection());
+                if (!focused) this.activateWorkItem(item);
+                result = { jobId: this.appendJob(item, parsed.text, origin, attachments).id };
+              }
+            }
           }
         }
       }
@@ -638,29 +773,6 @@ export class BridgeCore {
         this.find<Project>("project", session.agent + ":" + session.projectId)?.managed) return { ...resolved, projectId: session.projectId };
     return resolved;
   }
-  private routingContext(text: string, target: Target = this.selection(), origin?: Origin, jobId?: string): RoutingContext {
-    const current = this.resolvedTarget(target), enabled = this.preferences().enabledAgents;
-    const tasks = this.list<Job>("job").filter(job => job.id !== jobId && origin &&
-      (origin.kind === "desktop" || this.menuKey(job.origin) === this.menuKey(origin)));
-    const activeTasks = tasks.filter(job => !["completed", "cancelled", "interrupted", "failed"].includes(job.status)).slice(-12);
-    const recentTasks = tasks.filter(job => ["completed", "interrupted", "failed"].includes(job.status) && job.sessionId).slice(-3);
-    return { text, current, settings: this.routingPreferences(), defaultAgent: this.preferences().defaultAgent, enabledAgents: enabled,
-      projects: this.list<Project>("project").filter((project) => enabled.includes(project.agent) && this.catalogMembers.get(project.agent)?.projects.has(project.id)),
-      sessions: this.list<Session>("session").filter((session) => session.id === current.sessionId ||
-        enabled.includes(session.agent) && this.catalogMembers.get(session.agent)?.sessions.has(session.nativeId)),
-      probes: Object.fromEntries(Object.entries(this.probes).filter(([agent]) => enabled.includes(agent))), active: Object.fromEntries(enabled.map((agent) => [agent,
-        this.get<Target>("active:" + agent + ":code") ?? this.fresh(agent)])),
-      activeProjects: Object.fromEntries(this.list<Project>("project").flatMap(project => {
-        const key = project.agent + ":" + project.id, target = this.get<Target>("active-project:" + key);
-        return target ? [[key, target]] : [];
-      })),
-      tasks: [...activeTasks, ...recentTasks].map((job) => ({
-          id: job.id, text: job.text.slice(0, 500), status: job.status, target: this.resolvedTarget(job.target), question: job.error,
-          canAnswer: this.menuKey(job.origin) === this.menuKey(origin!) && this.routeIsOpen(job),
-          canStop: Boolean(this.adapters[job.target.agent]?.stopTurn) })),
-      history: this.list<Message>("message").filter((message) => message.sessionId === current.sessionId).slice(-6)
-        .map(({ role, text }) => ({ role, text: text.slice(0, 1000) })) };
-  }
   private targetName(target: Target, session?: Session): string {
     const agent = this.displayAgent(target.agent);
     const project = target.projectId ? this.list<Project>("project").find((project) =>
@@ -670,493 +782,6 @@ export class BridgeCore {
   }
   private displayAgent(agent: string): string {
     return menuLine(this.get<Preferences>("preferences")?.names[agent] || (agent === "claude" ? "Claude" : agentNames[agent]) || agent);
-  }
-  private routeLabel(action: RouteAction): string {
-    if (!action.target) return menuLine(action.label, 160);
-    const verb = action.kind === "select" ? "只切换到：" : action.kind === "control" ? "任务操作：" :
-      action.id === "continue" ? "继续：" : action.target.sessionId ? "恢复会话并发送：" : "新建会话并发送：";
-    const label = verb + this.targetName(this.resolvedTarget(action.target));
-    // "select" only moves the target; every other kind sends the original message there. The two
-    // read alike once truncated to the same target name, so spell out the behavioral difference.
-    return action.kind === "select" ? label + "（这条消息不会发送）" : label;
-  }
-  private textMenus(origin: Origin): TextMenu[] {
-    return this.list<TextMenu>("text-menu").filter(menu => menu.active && this.menuKey(menu.origin) === this.menuKey(origin));
-  }
-  // A routing question the user can no longer answer must also stop being offered to the router.
-  private routeIsOpen(job: Job): boolean {
-    return job.status === "awaiting_route" && (job.routing?.expiresAt ?? 0) > Date.now();
-  }
-  sweepExpiredRoutes(): void {
-    for (const job of this.list<Job>("job")) {
-      if (job.status !== "awaiting_route" || this.routeIsOpen(job)) continue;
-      this.closeTextMenus(job.id);
-      this.record("job", job.id, { ...job, status: "cancelled", error: "目标选择已过期，任务未发送。" });
-    }
-  }
-  private closeTextMenus(jobId: string): void {
-    for (const menu of this.list<TextMenu>("text-menu")) {
-      if (menu.jobId === jobId && menu.active) this.record("text-menu", menu.id, { ...menu, active: false });
-    }
-  }
-  private openTextMenu(job: Job | undefined, origin: Origin, view: TextView, prefix = "", focus = false): string {
-    for (const menu of this.textMenus(origin)) {
-      if (menu.jobId === job?.id) this.record("text-menu", menu.id, { ...menu, active: false });
-    }
-    const blocked = ["projects", "sessions"].includes(view.stage) && view.scope && !this.agentEnabled(view.scope.agent);
-    if (blocked) return this.openTextMenu(job, origin, { stage: "agents", mode: view.mode }, [prefix, this.disabledNotice(view.scope!.agent)].filter(Boolean).join("\n\n"), focus);
-    const entries: TextOption[] = [], mode = view.mode ?? "send", scope = view.scope ?? { agent: this.selection().agent };
-    const actionOption = (action: RouteAction, label = this.routeLabel(action), aliases?: string[]): TextOption => ({ kind: "action", action, label,
-      aliases: aliases ?? (action.kind === "send" ? action.id === "continue" ? ["继续", "继续原会话"] :
-        action.target?.sessionId ? ["恢复会话"] : ["新建", "新建会话", "另开一个"] : []) });
-    const next = (label: string, target: TextView, aliases?: string[]): TextOption => ({ kind: "view", label, view: target, aliases });
-    const projects = this.list<Project>("project").filter(project => project.agent === scope.agent &&
-      (!this.catalogMembers.has(project.agent) || this.catalogMembers.get(project.agent)!.projects.has(project.id)));
-    const pending = job?.status === "awaiting_route";
-    let header: string;
-    if (view.stage === "tasks") {
-      header = "你要处理哪条消息？请选择消息：";
-      const tasks = this.list<Job>("job").filter(task => this.menuKey(task.origin) === this.menuKey(origin) &&
-        (origin.kind === "desktop" || this.canReplyTo(task.origin)) &&
-        !["completed", "cancelled", "failed", "interrupted"].includes(task.status));
-      const offset = view.offset ?? 0;
-      for (const task of tasks.slice(offset, offset + 6)) {
-        entries.push({ kind: "task", jobId: task.id, label: menuLine(task.text, 50) + "（" + this.targetName(this.resolvedTarget(task.target)) + "）" });
-      }
-      if (offset + 6 < tasks.length) entries.push(next("下一页", { ...view, offset: offset + 6 }));
-      if (offset) entries.push(next("上一页", { ...view, offset: Math.max(0, offset - 6) }));
-    } else if (view.stage === "route") {
-      header = (job?.error ?? "请选择这条消息的处理方式。") + "\n原消息已保留，尚未发送：\n“" + menuLine(job?.text ?? "", 100) + "”";
-      for (const action of job?.routing?.options ?? []) {
-        if (action.kind === "control" || !action.target || this.agentEnabled(action.target.agent)) entries.push(actionOption(action));
-      }
-      entries.push(next("手动选择目标", { stage: "agents", mode: job?.routingDecision?.intent?.choice === "navigate" ? "select" : "send" }, ["选择其他目标", "都不是", "手动选择其他目标"]));
-      if (!job?.routingDecision?.intent) entries.push(next("只切换目标，不发送原消息", { stage: "agents", mode: "select" }));
-      entries.push({ kind: "retry", label: "重新尝试智能判断", aliases: ["重新判断", "重试智能判断"] });
-    } else if (view.stage === "correction") {
-      header = "这条消息" + (job?.status === "completed" ? "已经完成" : "已经发送，执行状态请核对") + "：\n" +
-        this.targetName(this.resolvedTarget(job!.target), job?.sessionId ? this.find<Session>("session", job.sessionId) : undefined) + "\n不会因更正目标而重复发送原消息。";
-      if (job && ["dispatching", "running", "queued", "awaiting_approval"].includes(job.status) && !job.externalControl && this.adapters[job.target.agent]?.stopTurn) {
-        entries.push(actionOption({ id: "stop_" + job.id, kind: "control", command: "stop", jobId: job.id, label: "请求停止这条任务" }, "请求停止这条任务"));
-      }
-      if (job?.externalControl) header += "\n停止或移除排队消息需要在 Codex 原会话中处理。";
-      entries.push(next("为后续消息选择其他目标", { stage: "agents", mode: "select" }));
-      entries.push({ kind: "status", label: "查看任务状态" });
-    } else if (view.stage === "agents") {
-      header = "选择 Agent：";
-      for (const agent of agentIDs) if (this.adapters[agent] && this.agentEnabled(agent)) {
-        entries.push(next(this.displayAgent(agent) + "（" + this.availabilityLabel(agent) + "）", { stage: "projects", mode, scope: { agent } },
-          [...new Set([this.displayAgent(agent), agentNames[agent]!, agent])]));
-      }
-      if (pending) entries.push(next("返回上一步", { stage: "route" }, ["返回", "上一步"]));
-    } else if (view.stage === "projects") {
-      header = this.displayAgent(scope.agent) + "\n选择项目：";
-      const offset = view.offset ?? 0;
-      for (const project of projects.slice(offset, offset + 6)) entries.push(next(menuLine(project.name),
-        { stage: "sessions", mode, scope: { agent: project.agent, projectId: project.id } }));
-      if (offset + 6 < projects.length) entries.push(next("下一页", { ...view, offset: offset + 6 }));
-      if (offset) entries.push(next("上一页", { ...view, offset: Math.max(0, offset - 6) }));
-      entries.push(next("无项目 · 直接对话", { stage: "sessions", mode, scope: { agent: scope.agent, projectId: null } }, ["无项目", "直接对话"]));
-      entries.push(next("返回上一步", { stage: "agents", mode }, ["返回", "上一步"]));
-    } else {
-      const project = scope.projectId === undefined ? "全部会话" : scope.projectId === null ? "无项目" : projects.find(project => project.id === scope.projectId)?.name ?? "项目已不可用";
-      header = this.displayAgent(scope.agent) + " > " + menuLine(project) + "\n" + (mode === "send" ? "把原消息发送到：" : "选择会话：");
-      const sessions = this.list<Session>("session").filter(session => session.agent === scope.agent &&
-        (scope.projectId === undefined || session.projectId === scope.projectId) &&
-        (!this.catalogMembers.has(session.agent) || this.catalogMembers.get(session.agent)!.sessions.has(session.nativeId)))
-        .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
-      const offset = view.offset ?? 0;
-      for (const session of sessions.slice(offset, offset + 6)) {
-        const action: RouteAction = { id: (mode === "send" ? "resume_" : "select_") + session.shortId, kind: mode === "send" ? "send" : "select",
-          target: { agent: session.agent, mode: session.mode, projectId: session.projectId, sessionId: session.id }, label: session.title };
-        entries.push(actionOption(action, (mode === "send" ? "继续会话：" : "选择会话：") + this.targetName(action.target!), [menuLine(session.title)]));
-      }
-      if (offset + 6 < sessions.length) entries.push(next("下一页", { ...view, offset: offset + 6 }));
-      if (offset) entries.push(next("上一页", { ...view, offset: Math.max(0, offset - 6) }));
-      if (!sessions.length) header += "\n暂无已有会话。";
-      if (scope.projectId !== undefined && (scope.projectId === null || projects.some(project => project.id === scope.projectId))) {
-        const target = { agent: scope.agent, mode: "code", projectId: scope.projectId, sessionId: null, creationKey: null };
-        entries.push(actionOption({ id: "manual_new", kind: mode === "send" ? "send" : "select", target, label: "新建会话" },
-          "新建会话：" + this.targetName(target), ["新建会话", "新建", "另开一个"]));
-      }
-      entries.push(next("返回上一步", { stage: "projects", mode, scope: { agent: scope.agent } }, ["返回", "上一步"]));
-    }
-    entries.push(pending ? { kind: "cancel", label: "取消这条消息", aliases: ["取消", "算了"] } :
-      { kind: "dismiss", label: "结束选择", aliases: ["取消", "结束"] });
-    const menu: TextMenu = { id: "M" + randomUUID().replaceAll("-", "").slice(0, 6), jobId: job?.id, origin, view, entries,
-      header: (prefix ? prefix + "\n\n" : "") + header, version: this.selection().version, expiresAt: Date.now() + 10 * 60_000, active: true };
-    this.record("text-menu", menu.id, menu);
-    if (focus) this.put("text-focus:" + this.menuKey(origin), menu.id);
-    return renderTextMenu(menu);
-  }
-  private correctionMenu(job: Job, origin: Origin): string {
-    if (["routing", "accepted", "preparing", "waiting_agent", "awaiting_confirmation", "awaiting_route"].includes(job.status)) {
-      job.status = "awaiting_route"; job.error = "可以为这条消息重新选择目标。";
-      job.routing = { intent: this.get<number>("intent") ?? 0, version: this.selection().version, expiresAt: Date.now() + 10 * 60_000, options: [] };
-      this.record("job", job.id, job);
-      return this.openTextMenu(job, origin, { stage: "route" }, "", true);
-    }
-    return this.openTextMenu(job, origin, { stage: "correction", mode: "select" }, "", true);
-  }
-  private answerCorrection(text: string, origin: Origin): Receipt | undefined {
-    if (!["选错了", "不是这个会话", "换一个会话"].includes(text)) return;
-    const jobs = this.list<Job>("job").filter(job => this.menuKey(job.origin) === this.menuKey(origin) &&
-      (origin.kind === "desktop" || this.canReplyTo(job.origin)) && !["cancelled", "failed", "interrupted"].includes(job.status) &&
-      (job.status !== "completed" || job.sessionId));
-    const pending = jobs.filter(job => job.status !== "completed");
-    if (pending.length > 1) return { message: this.openTextMenu(undefined, origin, { stage: "tasks" }, "", true) };
-    const job = pending[0] ?? jobs.at(-1);
-    return { message: job ? this.correctionMenu(job, origin) : "当前没有可更正的任务。请直接说明你想使用的 Agent、项目或会话。" };
-  }
-  private answerTextOptions(text: string, origin: Origin): Receipt | undefined {
-    const code = /^(M[0-9a-f]{6})-(\d+)$/i.exec(text);
-    if (!code && /^\d+$/.test(text) && this.find("choice-menu", this.menuKey(origin))) return;
-    const menus = this.textMenus(origin);
-    const focused = menus.find(menu => menu.id === this.get<string>("text-focus:" + this.menuKey(origin)));
-    let menu = code ? this.find<TextMenu>("text-menu", "M" + code[1]!.slice(1).toLowerCase()) : focused;
-    if (!menu && !code) {
-      if (menus.length > 1 && menus.some(item => textOptionIndex(text, item.entries) !== undefined)) {
-        return { message: this.openTextMenu(undefined, origin, { stage: "tasks" }, "", true) };
-      }
-      if (menus.length === 1) menu = menus[0];
-    }
-    if (!menu) return code ? { message: "这组选项已经失效，请使用当前消息中的选项。" } : undefined;
-    if (this.menuKey(menu.origin) !== this.menuKey(origin) || menu.origin.bindingEpoch !== origin.bindingEpoch) {
-      return { message: "这组选项不属于当前绑定的对话，未执行任何操作。" };
-    }
-    const job = menu.jobId ? this.find<Job>("job", menu.jobId) : undefined;
-    const index = textOptionIndex(code?.[2] ?? text, menu.entries);
-    if (index === undefined && menu.entries.some(entry => [entry.label, ...(entry.aliases ?? [])].includes(text))) {
-      return { message: "这个文字对应多个选项，请回复具体编号。\n\n" + renderTextMenu(menu) };
-    }
-    if (index === undefined && !code && menu.view.stage === "route" && this.smartRoutingEnabled()) return;
-    if (index === undefined && !code && job?.status === "completed" && menu.view.stage !== "correction") {
-      this.record("text-menu", menu.id, { ...menu, active: false }); return;
-    }
-    if (!menu.active) return { message: "这组选项已被处理或替换，未重复执行。请使用最新选项。" };
-    if (menu.expiresAt <= Date.now() || menu.version !== this.selection().version) {
-      return { message: this.openTextMenu(job, origin, menu.view, "选项已过期或当前目标已改变。原消息保留，请按新列表重新选择。", true) };
-    }
-    const entry = index === undefined ? undefined : menu.entries[index];
-    const named = !entry && menu.view.stage === "agents" ? agentIDs.find((agent) => !this.agentEnabled(agent) &&
-      [this.displayAgent(agent), agentNames[agent], agent].includes(text)) : undefined;
-    if (!entry) return { message: (named ? this.disabledNotice(named) : "没有匹配到这个选项，尚未执行。") + "\n\n" + renderTextMenu(menu) };
-    if (entry.kind === "view") return { message: this.openTextMenu(job, origin, entry.view, "", true) };
-    if (entry.kind === "task") {
-      const task = this.find<Job>("job", entry.jobId);
-      if (!task) return { message: "这条消息已不可用，请重新选择。" };
-      this.record("text-menu", menu.id, { ...menu, active: false });
-      return { message: task.status === "awaiting_route" ? this.openTextMenu(task, origin, { stage: "route" }, "", true) : this.correctionMenu(task, origin) };
-    }
-    if (entry.kind === "status") return { message: this.command("status", "", origin) as string };
-    if (entry.kind === "dismiss") {
-      this.record("text-menu", menu.id, { ...menu, active: false }); return { message: "已结束选择，当前目标保持不变。" };
-    }
-    if (!job) return { message: "原消息已经不可用，未执行任何操作。" };
-    this.authorizeAction(origin, job);
-    if (entry.kind === "cancel" || entry.kind === "retry") {
-      if (job.status !== "awaiting_route") return { message: this.correctionMenu(job, origin) };
-      this.closeTextMenus(job.id);
-      if (entry.kind === "cancel") {
-        job.status = "cancelled"; job.error = "已取消，原消息未发送。"; this.record("job", job.id, job);
-        return { message: job.error };
-      }
-      job.status = "routing"; job.target = { ...this.selection() }; delete job.error;
-      job.routing = { intent: this.get<number>("intent") ?? 0 }; this.record("job", job.id, job);
-      return { jobId: job.id };
-    }
-    if (entry.kind !== "action") return;
-    const action = entry.action;
-    if (action.kind === "send" && job.status !== "awaiting_route") return { message: this.correctionMenu(job, origin) };
-    if (action.target) {
-      const target = action.target, member = this.catalogMembers.get(target.agent);
-      const session = target.sessionId ? this.find<Session>("session", target.sessionId) : undefined;
-      const blocked = this.blockedAgent(origin, target.agent);
-      if (blocked) return { message: this.openTextMenu(job, origin, { stage: "agents", mode: menu.view.mode ?? "send" },
-        blocked + (job.status === "awaiting_route" ? "原消息尚未发送。" : ""), true) };
-      if ((target.projectId || target.sessionId) && this.catalogErrors.has(target.agent)) {
-        return { message: this.openTextMenu(job, origin, menu.view, "该 Agent 的项目与会话目录暂不可用，原消息尚未发送。请稍后重新选择。", true) };
-      }
-      if (this.probes[target.agent]?.ready === false || this.probes[target.agent]?.executionError ||
-          target.projectId && member && !member.projects.has(target.projectId) ||
-          session && member && !member.sessions.has(session.nativeId)) {
-        return { message: this.openTextMenu(job, origin, menu.view, "该目标暂不可用，原消息尚未发送。请重新选择或返回上一步。", true) };
-      }
-    }
-    this.closeTextMenus(job.id);
-    // A correction after dispatch changes only future navigation, never the original execution record.
-    const navigation = job.status !== "awaiting_route";
-    const applying: Job = navigation ? { id: "J" + randomUUID().replaceAll("-", "").slice(0, 12), origin,
-      target: { ...this.selection() }, text, status: "accepted", createdAt: new Date().toISOString() } : job;
-    if (!navigation && action.kind === "send" && job.routeMessage) {
-      applying.receiptRevision = (job.receiptRevision ?? 0) + 1;
-      for (const entry of this.outbox()) if (entry.jobId === job.id && entry.kind === "receipt" && entry.status === "pending") {
-        this.record("outbox", entry.id, { ...entry, status: "cancelled" });
-      }
-    }
-    applying.target.version = this.selection().version;
-    this.applyRoute(applying, action);
-    return { jobId: applying.id };
-  }
-  private routingQuestion(options: RouteAction[]): string {
-    return options.length === 1 ? "请确认这条消息的处理方式。" : "这条消息应该如何处理？";
-  }
-  private waitForRoute(job: Job, message: string, options: RouteAction[]): void {
-    this.clearMenu(job.origin);
-    job.status = "awaiting_route";
-    job.routing = { intent: this.get<number>("intent") ?? 0, version: this.selection().version,
-      expiresAt: Date.now() + 10 * 60_000, options: options.slice(0, 2) };
-    job.error = message;
-    this.record("job", job.id, job);
-    const text = this.openTextMenu(job, job.origin, { stage: "route" });
-    if (job.origin.kind !== "desktop") this.enqueueReply(job.id + ":route:" + randomUUID(), job.origin, text, "status", job.id);
-    this.changed();
-  }
-  private async routeJob(job: Job): Promise<void> {
-    if (!job.routing || job.origin.kind !== "desktop" && !this.canReplyTo(job.origin)) return;
-    let actions = routeActions(this.routingContext(job.text, job.target, job.origin, job.id));
-    const valid = () => !this.closed && this.find<Job>("job", job.id)?.status === "routing" &&
-      (job.origin.kind === "desktop" || this.canReplyTo(job.origin));
-    const fallback = () => {
-      const context = this.routingContext(job.text, job.target, job.origin, job.id);
-      return context.current.sessionId || context.current.creationKey || (context.current as Selection).engaged ?
-        routeActions(context).filter((action) => action.id === "continue") : [];
-    };
-    try {
-      if (job.routing.intent !== (this.get<number>("intent") ?? 0)) throw new BridgeError("STALE_TARGET", "等待期间当前目标已改变，请重新选择本次任务的目标。");
-      if (!this.routeDecision || !this.smartRoutingEnabled()) throw new BridgeError("ROUTER_UNAVAILABLE", "智能路由已关闭，请为已接收的任务选择目标。");
-      if (Date.now() - Date.parse(job.queuedAt ?? job.createdAt) > 24 * 60 * 60_000) throw new BridgeError("STALE_TARGET", "任务已等待超过 24 小时，请确认目标后继续。");
-      if (Date.now() - this.routeCatalogAt > 30_000) {
-        await this.probeAgents();
-        await Promise.allSettled(agentIDs.filter((agent) => this.probes[agent]?.ready && this.agentEnabled(agent)).map((agent) => this.refreshCatalog(agent)));
-        this.routeCatalogAt = Date.now();
-      }
-      if (!valid()) return;
-      if (job.routing.intent !== (this.get<number>("intent") ?? 0)) throw new BridgeError("STALE_TARGET", "等待期间当前目标已改变，请重新选择本次任务的目标。");
-      let context = this.routingContext(job.text, job.target, job.origin, job.id);
-      actions = routeActions(context);
-      let answer = await this.routeDecision(context, actions);
-      if (!valid()) return;
-      let chosen = actions.find((action) => action.id === answer.choice);
-      if (chosen?.kind === "lookup" && chosen.scope && isConfidentRoute(answer)) {
-        context = { ...context, lookupScope: chosen.scope };
-        actions = routeActions(context);
-        answer = await this.routeDecision(context, actions);
-        if (!valid()) return;
-        chosen = actions.find(action => action.id === answer.choice);
-      }
-      if (chosen?.target && chosen.kind !== "control") await this.probeAgent(chosen.target.agent);
-      if (!valid()) return;
-      if (job.routing.intent !== (this.get<number>("intent") ?? 0) ||
-          JSON.stringify(context.settings) !== JSON.stringify(this.routingPreferences())) {
-        throw new BridgeError("STALE_TARGET", "判断期间当前目标或设置已改变，请重新选择本次任务的目标。");
-      }
-      if (chosen?.target && chosen.kind !== "control" && (!this.probes[chosen.target.agent]?.ready || this.probes[chosen.target.agent]?.executionError)) {
-        throw new BridgeError("AGENT_UNAVAILABLE", "目标 Agent 暂不可用，任务尚未发送。请检查连接或选择其他目标。");
-      }
-      const canContinue = context.current.sessionId || context.current.creationKey || (context.current as Selection).engaged;
-      const ranked = actions.filter((action) => !["clarify", "lookup", "answer"].includes(action.kind) &&
-        (action.id !== "continue" || canContinue) && (answer.probabilities[action.id] ?? 0) > 0)
-        .sort((a, b) => (answer.probabilities[b.id] ?? 0) - (answer.probabilities[a.id] ?? 0));
-      const scores = Object.values(answer.probabilities).sort((a, b) => b - a);
-      job.routingDecision = { provider: context.settings.provider, choice: answer.choice, confidence: answer.confidence,
-        probability: answer.probabilities[answer.choice] ?? 0, margin: (scores[0] ?? 0) - (scores[1] ?? 0),
-        ...(answer.intent ? { intent: { choice: answer.intent.choice, confidence: answer.intent.confidence,
-          probability: answer.intent.probabilities[answer.intent.choice] ?? 0 } } : {}) };
-      const continueAction = actions.find((action) => action.id === "continue");
-      const sameDestination = (a?: Target, b?: Target) => Boolean(a && b) && a!.agent === b!.agent && a!.mode === b!.mode &&
-        (a!.projectId ?? null) === (b!.projectId ?? null) && (a!.sessionId ?? null) === (b!.sessionId ?? null);
-      const confirmMode = context.settings.mode === "confirm";
-      const navigating = answer.intent?.choice === "navigate";
-      const leading = ranked[0];
-      let resolved: RouteAction | undefined;
-      // The top two candidates agreeing on one place is not a destination question: only whether
-      // to send. Navigation switches there without sending; anything else continues there.
-      if (!confirmMode && canContinue && continueAction && ranked.length > 1 &&
-          ranked.slice(0, 2).every((action) => action.id === "continue" || (action.kind === "select" && sameDestination(action.target, continueAction.target)))) {
-        resolved = navigating ? ranked.slice(0, 2).find((action) => action.kind === "select") ?? continueAction : continueAction;
-      }
-      // A lookup clears a low bar because a wrong list is cheap — but not when the task intent says
-      // this is work: answering it with a list leaves the actual question unanswered.
-      const taskIntent = ["current", "new", "resume"].includes(answer.intent?.choice ?? "");
-      if (!resolved && !confirmMode && chosen && chosen.kind !== "clarify" && chosen.kind !== "lookup" &&
-          (chosen.kind === "list" ? isConfidentLookup(answer) && !taskIntent : isConfidentRoute(answer, Boolean(context.current.sessionId)))) {
-        resolved = chosen;
-      }
-      // A task is carried out even without a confident destination: stay in the current
-      // conversation when that is the leading guess, otherwise start a fresh projectless one on
-      // the leading agent. Navigation, project creation, confirm mode and an explicit clarify
-      // (e.g. a named agent that is unavailable, or a cross-agent handoff) still ask.
-      const clarifying = chosen?.kind === "clarify" || answer.intent?.choice === "clarify";
-      if (!resolved && !confirmMode && !navigating && !clarifying && leading?.kind === "send") {
-        resolved = leading.id === "continue" && answer.intent?.choice !== "new" ? leading :
-          actions.find((action) => action.id === "new_" + leading.target!.agent + "_none") ?? leading;
-      }
-      // The flat choice can wobble (e.g. toward a status lookup) while the task intent says this is
-      // work: current work continues the conversation, a new purpose gets a fresh projectless one.
-      if (!resolved && !confirmMode && !navigating && !clarifying) {
-        if (answer.intent?.choice === "current" && canContinue && continueAction) resolved = continueAction;
-        else if (answer.intent?.choice === "new") resolved = actions.find((action) => action.id === "new_" + context.current.agent + "_none");
-      }
-      if (!resolved) {
-        const options = ranked.length ? ranked : fallback();
-        this.waitForRoute(job, chosen?.kind === "clarify" ? "这条消息希望交给哪个 Agent、项目或会话处理？" : this.routingQuestion(options), options);
-        return;
-      }
-      chosen = resolved;
-      if (job.attachments?.length && !["send", "answer"].includes(chosen.kind)) {
-        throw new BridgeError("INVALID_ROUTE", "这条消息带有附件，请选择接收文件的目标。原消息和附件已保留。");
-      }
-      this.db.transaction(() => this.applyRoute(job, chosen))();
-      this.changed();
-    } catch (error) {
-      if (!valid()) return;
-      const options = fallback();
-      // Jev is unavailable (not configured, network, quota, rejected key, …): an already-engaged
-      // target was chosen accurately before, so continuing it needs no re-confirmation. Only a
-      // message with no established destination yet is genuinely ambiguous without Jev's judgment.
-      if (options.length === 1 && options[0]!.id === "continue") {
-        this.db.transaction(() => this.applyRoute(job, options[0]!))();
-        this.changed();
-        return;
-      }
-      this.waitForRoute(job, error instanceof BridgeError ? error.message.replace(/^[A-Z_]+: /, "") : "路由暂不可用，任务未发送。", options);
-    }
-  }
-  private applyRoute(job: Job, action: RouteAction): void {
-    if (action.kind === "correct") {
-      const original = this.find<Job>("job", action.jobId!);
-      if (!original || original.status === "cancelled") throw new BridgeError("TARGET_MISSING", "原任务已不可用，请重新说明要更正的消息。");
-      this.authorizeAction(job.origin, original);
-      job.routeMessage = this.correctionMenu(original, job.origin); job.status = "completed";
-      delete job.routing; delete job.error; this.record("job", job.id, job);
-      if (job.origin.kind !== "desktop") this.enqueueReply(job.id + ":correction", job.origin, job.routeMessage, "status", job.id);
-      return;
-    }
-    if (action.kind === "answer") {
-      const original = this.find<Job>("job", action.jobId!);
-      if (!original || original.status !== "awaiting_route" || this.menuKey(original.origin) !== this.menuKey(job.origin)) {
-        throw new BridgeError("INVALID_STATE", "原问题已处理，请重新说明要处理的任务。");
-      }
-      if (!this.routeIsOpen(original)) throw new BridgeError("STALE_MENU", "原问题的目标选择已过期，请重新说明要处理的任务。");
-      const text = original.text + "\n\n路由询问：" + original.error + "\n补充目标信息：" + job.text;
-      if (Buffer.byteLength(text) > 256 * 1024) throw new BridgeError("INVALID_INPUT", "补充内容过长，请缩短后重试。");
-      const attachments = [...new Map([...(original.attachments ?? []), ...(job.attachments ?? [])].map(file => [file.id, file])).values()];
-      if (attachments.length > attachmentLimit) throw new BridgeError("INVALID_ATTACHMENT", "补充后的附件超过 10 个，请分成不同任务发送。");
-      this.record("job", original.id, { ...original, text, status: "routing", error: undefined,
-        ...(attachments.length ? { attachments } : {}),
-        routing: { intent: this.get<number>("intent") ?? 0 } });
-      job.status = "completed"; job.followsJobId = original.id; delete job.routing; delete job.error;
-      this.record("job", job.id, job); return;
-    }
-    if (action.kind === "control") {
-      const original = this.find<Job>("job", action.jobId!);
-      if (!original) throw new BridgeError("TARGET_MISSING", "原任务不存在。");
-      this.authorizeAction(job.origin, original);
-      try {
-        const result = this.command(action.command!, original.id, job.origin);
-        if (typeof result !== "string" && result.jobId) job.followsJobId = result.jobId;
-        const message = typeof result === "string" ? result : result.message ?? "已恢复任务。";
-        job.routeMessage = message.replaceAll(original.id, this.targetName(original.target)); job.status = "completed";
-      } catch (error) {
-        if (!(error instanceof BridgeError)) throw error;
-        job.status = "failed"; job.routeMessage = error.message.replace(/^[A-Z_]+: /, "");
-      }
-      delete job.routing; delete job.error; this.record("job", job.id, job);
-      if (job.origin.kind !== "desktop") this.enqueueReply(job.id + ":control", job.origin, job.routeMessage!, "status", job.id);
-      return;
-    }
-    if (action.target) {
-      const target = this.resolvedTarget(action.target);
-      this.executable(target.agent);
-      const blocked = this.blockedAgent(job.origin, target.agent);
-      if (blocked) throw new BridgeError("AGENT_DISABLED", blocked);
-      if (target.sessionId) {
-        const session = this.find<Session>("session", target.sessionId);
-        if (!session || session.agent !== target.agent || session.mode !== target.mode || session.projectId !== target.projectId) {
-          throw new BridgeError("TARGET_MISSING", "原会话已经改变，请重新选择。");
-        }
-      } else if (target.projectId && !this.list<Project>("project").some((project) => project.agent === target.agent && project.id === target.projectId)) {
-        throw new BridgeError("TARGET_MISSING", "项目已经改变，请重新选择。");
-      }
-      const current = this.selection();
-      const visible = current.version === job.target.version;
-      const switching = ["agent", "mode", "projectId", "sessionId", "creationKey"].some((key) =>
-        (current[key as keyof Target] ?? null) !== (target[key as keyof Target] ?? null));
-      if (switching) {
-        const intent = this.get<number>("intent") ?? 0;
-        this.put("intent", intent + 1);
-        // Later natural-language messages follow this committed route; manual changes never rebase them.
-        for (const pending of this.list<Job>("job")) {
-          if (pending.status === "routing" && pending.routing?.intent === intent && pending.id !== job.id) {
-            this.record("job", pending.id, { ...pending, routing: { intent: intent + 1 } });
-          }
-        }
-        if (visible) this.select(target);
-      }
-      if (action.kind === "select" && visible && !switching && !current.engaged) this.select(target);
-      if (action.kind === "send") {
-        job.target = this.reserve({ ...target, version: visible ? this.selection().version : target.version });
-        if (visible) this.put("selection", { ...job.target, sessionId: job.target.sessionId ?? null, creationKey: job.target.creationKey ?? null, engaged: true });
-        for (const pending of this.list<Job>("job")) {
-          if (pending.id !== job.id && pending.status === "routing" && pending.routing?.intent === (this.get<number>("intent") ?? 0)) {
-            this.record("job", pending.id, { ...pending, target: { ...job.target } });
-          }
-        }
-      }
-    }
-    // A status reply describes the other tasks; this message is answered by it, not still pending.
-    if (action.kind === "list") this.record("job", job.id, { ...job, status: "completed" });
-    const message = action.kind === "list" ? action.command === "status" ? this.command("status", "", job.origin) :
-      action.command === "help" ? this.command("help", "", job.origin) :
-      // Agents are a short fixed list; the informative form (with the reason each one is
-      // unavailable) beats a bare picker here, matching what /agent alone has always shown.
-      action.command === "agent" ? this.command("agent", "", job.origin) :
-      this.openTextMenu({ ...job, status: "completed" }, job.origin, { stage: action.command === "project" ? "projects" : "sessions",
-        mode: "select", scope: action.scope ?? { agent: this.selection().agent } }, "", true) :
-      action.kind === "select" ? this.targetName(action.target!) + (action.target?.sessionId ? "\n已切换✅" : "\n下一条消息将在这里开始。") : action.label;
-    delete job.routing; delete job.error;
-    job.status = action.kind === "send" ? "accepted" : "completed";
-    if (action.kind !== "send") {
-      job.routeMessage = typeof message === "string" ? message : message.message;
-      if (job.routeMessage && job.origin.kind !== "desktop") this.enqueueReply(job.id + ":target", job.origin, job.routeMessage, "status", job.id);
-    }
-    this.record("job", job.id, job);
-  }
-  resolveRouting(jobId: string, index: number, origin: Origin): Receipt {
-    const job = this.find<Job>("job", jobId);
-    if (!job || job.status !== "awaiting_route" || !job.routing?.options) throw new BridgeError("INVALID_STATE", "该任务当前不需要选择目标。");
-    this.authorizeAction(origin, job);
-    if (!Number.isSafeInteger(index) || index < 1 || index > job.routing.options.length + 1) throw new BridgeError("INVALID_INPUT", "请选择本次显示的编号。");
-    const receipt = this.db.transaction(() => {
-      if (index === job.routing!.options!.length + 1) {
-        this.closeTextMenus(job.id);
-        job.status = "cancelled"; job.error = "已取消，任务未发送。"; this.record("job", job.id, job);
-        return { message: "已取消，任务未发送。" };
-      }
-      if ((job.routing!.expiresAt ?? 0) <= Date.now()) {
-        throw new BridgeError("STALE_MENU", "目标选择已过期。请补充目标信息或重试路由，原始任务仍已保留。");
-      }
-      if (job.origin.kind !== "desktop" && !this.canReplyTo(job.origin)) throw new BridgeError("UNAUTHORIZED", "原消息通道已经解除绑定。");
-      this.closeTextMenus(job.id);
-      this.applyRoute(job, job.routing!.options![index - 1]!);
-      return { jobId: job.id };
-    })();
-    this.changed(); return receipt;
-  }
-  private answerRouting(text: string, origin: Origin): Receipt | undefined {
-    if (this.textMenus(origin).length) return;
-    if (/^\d+$/.test(text) && this.find("choice-menu", this.menuKey(origin))) return;
-    const jobs = this.list<Job>("job").filter((job) => job.status === "awaiting_route" &&
-      this.menuKey(job.origin) === this.menuKey(origin));
-    if (jobs.length > 1 && (/^\d+$/.test(text) || ["取消", "算了"].includes(text))) {
-      return { message: this.openTextMenu(undefined, origin, { stage: "tasks" }, "", true) };
-    }
-    const job = jobs[0];
-    if (!job) return;
-    if (/^\d+$/.test(text)) return this.resolveRouting(job.id, Number(text), origin);
-    if (["取消", "算了"].includes(text)) return this.resolveRouting(job.id, job.routing!.options!.length + 1, origin);
-    return;
   }
   private answerProjectTrust(text: string, origin: Origin): Receipt | undefined {
     if (!["信任此项目", "不信任此项目"].includes(text)) return;
@@ -1168,18 +793,10 @@ export class BridgeCore {
     const result = this.command(text === "信任此项目" ? "approve" : "deny", pending[0]!.id, origin);
     return typeof result === "string" ? { message: result } : result;
   }
-  private cancelRoutingQuestions(): void {
-    for (const job of this.list<Job>("job")) {
-      if (job.status !== "awaiting_route") continue;
-      job.error = "当前目标已改变，原消息已保留，尚未发送。请重新选择这条消息的目标。";
-      if (job.routing) job.routing.expiresAt = 0;
-      this.record("job", job.id, job);
-    }
-  }
-
   private command(name: string, argument: string, origin: Origin): string | Receipt {
     const selected = this.selection();
     if (name === "help") return this.guide();
+    if (name === "tasks") return this.showTaskMenu(origin);
     const browsing = ["new", "projects", "project", "sessions", "more"].includes(name) && this.blockedAgent(origin, selected.agent);
     if (browsing) return browsing;
     if (name === "approve" || name === "deny") {
@@ -1228,21 +845,19 @@ export class BridgeCore {
         this.record("job", job.id, job);
         return job.id + " 已取消。";
       }
-      if (!["waiting_agent", "awaiting_confirmation", "awaiting_route"].includes(job.status)) {
+      if (!["waiting_agent", "awaiting_confirmation"].includes(job.status)) {
         throw new BridgeError("INVALID_STATE", "此任务不处于等待继续状态。");
       }
-      const blocked = job.routing ? undefined : this.blockedAgent(job.origin, job.target.agent);
+      const blocked = this.blockedAgent(job.origin, job.target.agent);
       if (blocked && origin.kind === "desktop") throw new BridgeError("AGENT_DISABLED", blocked);
       if (blocked) return blocked;
-      job.status = job.routing ? "routing" : "accepted";
-      if (job.routing) job.routing = { intent: this.get<number>("intent") ?? 0 };
+      job.status = "accepted";
       job.queuedAt = new Date().toISOString(); delete job.error;
       this.record("job", job.id, job);
       return { jobId: job.id, message: job.id + " 已继续，保持原 Agent 和会话。" };
     }
     if (name === "status") {
       const labels: Record<string, string> = {
-        routing: "正在判断目标", awaiting_route: "等待选择目标，任务尚未发送",
         accepted: "已接收，等待执行", preparing: "正在连接会话", dispatching: "正在发送给助手",
         queued: "已加入原会话队列，等待执行",
         running: "正在执行", awaiting_approval: "等待你的审批", stopping: "正在停止，等待确认",
@@ -1268,7 +883,7 @@ export class BridgeCore {
             origin.peerId === job.origin.peerId && this.canReplyTo(job.origin);
           const actions: string[] = [];
           if (canAct) {
-            if (["waiting_agent", "awaiting_confirmation", "awaiting_route"].includes(job.status)) actions.push("继续：/continue " + job.id);
+            if (["waiting_agent", "awaiting_confirmation"].includes(job.status)) actions.push("继续：/continue " + job.id);
             if (["accepted", "preparing", "waiting_agent", "awaiting_confirmation", "routing", "awaiting_route"].includes(job.status)) actions.push("取消：/cancel " + job.id);
             if (!job.externalControl && ["dispatching", "running", "awaiting_approval"].includes(job.status) && this.adapters[job.target.agent]?.stopTurn) actions.push("停止：/stop " + job.id);
           }
@@ -1289,18 +904,13 @@ export class BridgeCore {
       if (blocked) return blocked;
       this.navigationVersion++;
       this.clearMenu(origin);
-      if (argument !== selected.agent) {
-        this.cancelRoutingQuestions();
-        this.put("intent", (this.get<number>("intent") ?? 0) + 1);
-        this.select(this.get<Target>("active:" + argument + ":code") ?? this.fresh(argument));
-      }
+      if (argument !== selected.agent) this.select(this.get<Target>("active:" + argument + ":code") ?? this.fresh(argument));
       return "当前 Agent：" + argument;
     }
     if (name === "new" || (name === "project" && argument === "none")) {
-      this.cancelRoutingQuestions();
       this.clearMenu(origin);
       const target = { ...selected, sessionId: null, creationKey: null, projectId: name === "project" ? null : selected.projectId };
-      this.put("intent", (this.get<number>("intent") ?? 0) + 1);
+      this.setFocus(null);
       this.select(target);
       return "下一条普通消息会新建会话。";
     }
@@ -1312,9 +922,8 @@ export class BridgeCore {
     if (name === "project") {
       const project = this.list<Project>("project").find((p) => p.shortId === argument && p.agent === selected.agent);
       if (!project) throw new BridgeError("TARGET_MISSING", "此项目不存在，请使用 /projects 查看当前 Agent 的项目。");
-      this.cancelRoutingQuestions();
       this.clearMenu(origin);
-      this.put("intent", (this.get<number>("intent") ?? 0) + 1);
+      this.setFocus(null);
       this.select({ ...selected, projectId: project.id, sessionId: null, creationKey: null });
       return "当前项目：" + project.name + "\n发送 /sessions 选择已有会话，或直接发消息新建会话。";
     }
@@ -1341,8 +950,7 @@ export class BridgeCore {
       this.navigationVersion++;
       this.clearMenu(origin);
       if (selected.sessionId !== session.id || selected.agent !== session.agent || selected.mode !== session.mode || selected.projectId !== session.projectId) {
-        this.cancelRoutingQuestions();
-        this.put("intent", (this.get<number>("intent") ?? 0) + 1);
+        this.setFocus(null);
         this.select({ agent: session.agent, mode: session.mode, projectId: session.projectId, sessionId: session.id });
       }
       return "当前会话：" + session.title.replaceAll(/\s+/g, " ").slice(0, 100);
@@ -1443,14 +1051,7 @@ export class BridgeCore {
   run(jobId: string): Promise<void> {
     const running = this.runs.get(jobId);
     if (running) return running;
-    const routed = this.routeTail.then(async () => {
-      if (this.closed) return;
-      const job = this.find<Job>("job", jobId);
-      if (job?.status === "routing") await this.routeJob(job);
-      return this.closed ? undefined : this.find<Job>("job", jobId);
-    });
-    this.routeTail = routed.then(() => {}, () => {});
-    const next = routed.then(async (job) => {
+    const next = Promise.resolve(this.closed ? undefined : this.find<Job>("job", jobId)).then(async (job) => {
       if (!job || this.closed) return;
       if (job.followsJobId) { await this.run(job.followsJobId); return; }
       if (job.status !== "accepted") return;
@@ -1557,6 +1158,7 @@ export class BridgeCore {
         (relocated ? "\n原工作目录已不存在（可能已被移动或删除），已在原会话中继续，临时工作目录：" + session.cwd : "") + "\n已收到✅";
       this.db.transaction(() => {
         this.record("job", job.id, job);
+        this.syncWorkItem(job);
         if (job.origin.kind !== "desktop") this.enqueueReply(job.id + ":receipt" + (job.receiptRevision ? ":" + job.receiptRevision : ""), job.origin, job.routeMessage!, "receipt", job.id);
       })();
       this.changed();
@@ -1576,7 +1178,7 @@ export class BridgeCore {
           const current = this.find<Job>("job", job.id)!;
           this.record("job", job.id, { ...current, turnId, status: current.status === "stopping" ? "stopping" : "running" });
           this.record("message", job.id + ":user", { id: job.id + ":user", sessionId: session.id, role: "user", text: job.text,
-            attachments: job.attachments, source: job.origin.kind, createdAt: new Date().toISOString() });
+            attachments: job.attachments, source: job.origin.kind, workItemId: job.workItemId, createdAt: new Date().toISOString() });
           this.changed();
         },
         message: update,
@@ -1586,6 +1188,7 @@ export class BridgeCore {
       if (!result.turnId || typeof result.text !== "string") throw new BridgeError("SEND_UNCERTAIN", "未收到有效的原生完成结果。");
       if (!result.status || result.status === "completed") session = await this.collectOutputs(job, session, result.text);
       if (this.closed) return;
+      this.syncWorkItem(job);
       finishText();
       this.db.transaction(() => {
         job.status = result.status ?? "completed"; job.turnId = result.turnId;
@@ -1595,11 +1198,12 @@ export class BridgeCore {
         this.expireApprovals(job.id);
         for (const [role, text] of [["user", job.text], ...(messages.size ? [] : [["assistant", result.text]])]) {
           const id = job.id + ":" + role;
-          this.record("message", id, { id, sessionId: session.id, role, text, createdAt: new Date().toISOString(),
+          this.record("message", id, { id, sessionId: session.id, role, text, createdAt: new Date().toISOString(), workItemId: job.workItemId,
             ...(role === "user" ? { attachments: job.attachments, source: job.origin.kind } : { replyTo: this.quote(job.id + ":user", job.text) }) });
         }
         if (!messages.size) this.enqueueReply(job.id, job.origin, this.signed(job.target.agent, (job.error ? job.id + " · " + job.error + "\n" : "") + result.text), "final", job.id);
         else if (job.error && job.origin.kind !== "desktop") this.enqueueReply(job.id + ":status", job.origin, job.error, "status", job.id);
+        this.syncWorkItem(job);
       })();
     } catch (error) {
       if (this.closed) return;
@@ -1612,6 +1216,7 @@ export class BridgeCore {
       job.status = dispatched || code === "SEND_UNCERTAIN" || code === "UNKNOWN" ? "uncertain" : code === "AGENT_UNAVAILABLE" ? "waiting_agent" : "failed";
       job.error = code === "AGENT_UNAVAILABLE" && error instanceof BridgeError ? error.message.replace(/^AGENT_UNAVAILABLE: /, "") + " 任务未发送。" : code === "TARGET_MISSING" ? (error instanceof BridgeError ? error.message.replace(/^TARGET_MISSING: /, "") : "原会话不存在。") + " 任务未发送。" : "操作状态待确认，未自动重试。";
       this.saveWaitingJob(job);
+      this.syncWorkItem(job);
     } finally {
       acceptingText = false; flush(false); this.flushText.delete(jobId);
       this.adapters[job.target.agent]?.releaseSession?.();
@@ -1647,9 +1252,8 @@ export class BridgeCore {
             const active = this.get<Target>(this.activeKey(session));
             if (active && matches(active)) this.put(this.activeKey(session), update(active));
             for (const queued of this.list<Job>("job")) {
-              if (["accepted", "routing", "awaiting_route"].includes(queued.status) && matches(queued.target)) {
+              if (queued.status === "accepted" && matches(queued.target)) {
                 queued.target = update(queued.target);
-                if (queued.routing?.options) queued.routing.options = queued.routing.options.map(option => option.target && matches(option.target) ? { ...option, target: update(option.target) } : option);
                 this.record("job", queued.id, queued);
               }
             }
@@ -1718,9 +1322,6 @@ export class BridgeCore {
   outbox(): OutboxEntry[] { return this.list<OutboxEntry>("outbox"); }
   // Exposed for callers (tests, the desktop app) that need to address a specific pending menu
   // directly; the rendered text no longer prints this code, since it is meaningless to a reader.
-  activeMenuId(origin: Origin): string | undefined {
-    return this.textMenus(origin).at(-1)?.id;
-  }
   enqueueAttachment(id: string, origin: Origin, attachment: OutputAttachment, jobId: string): void {
     if (this.find("outbox", id)) return;
     this.record("outbox", id, { id, jobId, origin, attachment, text: "附件：" + attachment.name, kind: "attachment", batchId: id, status: "pending" });
@@ -1728,6 +1329,7 @@ export class BridgeCore {
   private saveWaitingJob(job: Job): void {
     this.db.transaction(() => {
       this.record("job", job.id, job);
+      this.syncWorkItem(job);
       if (job.origin.kind !== "desktop") this.enqueueReply(job.id + ":status:" + randomUUID(), job.origin,
         taskNotice(job.id, job.error ?? "操作已停止。", ["waiting_agent", "awaiting_confirmation"].includes(job.status)), "status", job.id);
     })();
@@ -1750,7 +1352,7 @@ export class BridgeCore {
     })();
   }
   ingestBatch(kind: string, account: string, cursor: string, events: ChannelEvent[]): Receipt[] {
-    if (!["imessage", "weixin"].includes(kind) || !account || typeof cursor !== "string") {
+    if (kind !== "weixin" || !account || typeof cursor !== "string") {
       throw new BridgeError("INVALID_INPUT", "无效的消息批次。");
     }
     this.batching = true;
@@ -1783,7 +1385,7 @@ export class BridgeCore {
       this.db.prepare("DELETE FROM bindings WHERE kind=?").run(kind);
       for (const job of this.list<Job>("job")) {
         if (job.origin.kind === kind) this.expireApprovals(job.id);
-        if (job.origin.kind === kind && ["accepted", "preparing", "waiting_agent", "awaiting_confirmation", "routing", "awaiting_route"].includes(job.status)) {
+        if (job.origin.kind === kind && ["accepted", "preparing", "waiting_agent", "awaiting_confirmation"].includes(job.status)) {
           this.record("job", job.id, { ...job, status: "cancelled", error: "通道已解除绑定，任务未发送。" });
         }
       }
@@ -1807,40 +1409,7 @@ export class BridgeCore {
     this.changed();
   }
   pendingJobs(): Job[] {
-    return this.list<Job>("job").filter((job) => ["routing", "accepted"].includes(job.status));
-  }
-  iMessageConfiguration(): IMessageConfiguration | undefined { return this.get<IMessageConfiguration>("imessage:configuration"); }
-  setIMessageAccessDenied(denied: boolean): void {
-    const key = "imessage:access-notice", current = this.get<{ id: string; origin: Origin }>(key);
-    if (!denied) {
-      if (!current) return;
-      this.db.transaction(() => {
-        for (const entry of this.outbox()) {
-          if (entry.batchId === current.id && entry.status === "pending") this.record("outbox", entry.id, { ...entry, status: "cancelled" });
-        }
-        this.put(key, null);
-      })();
-    } else {
-      const configuration = this.iMessageConfiguration();
-      if (!configuration || current && this.canReplyTo(current.origin)) return;
-      const id = "imessage:access:" + randomUUID();
-      const origin: Origin = { kind: "imessage", accountId: configuration.email, peerId: configuration.phone, eventId: id,
-        bindingEpoch: this.get<number>("binding-epoch:imessage") ?? 0 };
-      if (!this.canReplyTo(origin)) return;
-      this.db.transaction(() => {
-        this.enqueueReply(id, origin, "电脑未获得完全磁盘访问权限，暂时无法读取 iMessage 消息，也无法通过此通道查看项目或会话。\n请在电脑「系统设置 → 隐私与安全 → 完全磁盘访问」中开启 Chat Bridge。开启后会自动重连；若仍未恢复，请退出并重新打开应用。无需重新配对。", "access_notice");
-        this.put(key, { id, origin });
-      })();
-    }
-    this.changed();
-  }
-  activateIMessage(configuration: IMessageConfiguration, cursor: string): void {
-    this.db.transaction(() => {
-      this.bindChannel("imessage", configuration.email, configuration.phone);
-      this.put("imessage:configuration", configuration);
-      this.put("cursor:" + JSON.stringify(["imessage", configuration.email]), cursor);
-    })();
-    this.changed();
+    return this.list<Job>("job").filter((job) => job.status === "accepted");
   }
   close(): void {
     this.closed = true;

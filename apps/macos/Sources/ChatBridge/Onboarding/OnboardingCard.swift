@@ -12,17 +12,11 @@ struct OnboardingCard: View {
     @State private var picked: Set<String> = []
     @State private var touched: Set<String> = []
     @State private var pairing = Pairing.idle
-    @State private var routeMode = RouteMode.menu
-    @State private var provider = "typesafe"
-    @State private var apiKey = ""
     @State private var loginEnabled = LaunchAtLogin.isEnabled
     @State private var loginError: String?
-    @AppStorage("imessage.setup.email") private var email = ""
-    @AppStorage("imessage.setup.phone") private var phone = ""
     @State private var verificationCode = ""
 
-    enum Pairing { case idle, weixin, imessage }
-    enum RouteMode { case menu, smart }
+    enum Pairing { case idle, weixin }
 
     init(service: BridgeService, flight: OnboardingFlight, step: Int = 0, pairing: Pairing = .idle, finish: @escaping () -> Void) {
         self.service = service
@@ -62,7 +56,7 @@ struct OnboardingCard: View {
         .shadow(color: .black.opacity(0.28), radius: 46, y: 24)
         .scaleEffect(flight.flying ? 0.03 : 1, anchor: .topTrailing)
         .opacity(flight.flying ? 0 : 1)
-        .onAppear { refreshPicks(); syncRouting() }
+        .onAppear { refreshPicks() }
         .onChanged(of: service.probes.map { "\($0.key):\($0.value.isAvailable)" }.sorted()) { _ in refreshPicks() }
     }
 
@@ -84,7 +78,7 @@ struct OnboardingCard: View {
         case 0: welcome
         case 1: agents
         case 2: channels
-        case 3: routing
+        case 3: taskDesign
         default: done
         }
     }
@@ -98,7 +92,7 @@ struct OnboardingCard: View {
     private var welcome: some View {
         VStack(alignment: .leading, spacing: 0) {
             title("欢迎使用 Chat Bridge")
-            lede(Text("把") + Text("微信").foregroundColor(.primary).bold() + Text("和 ") + Text("iMessage").foregroundColor(.primary).bold()
+            lede(Text("把") + Text("微信").foregroundColor(.primary).bold()
                  + Text(" 连到这台 Mac 上的 AI Agent，离开电脑，也能接着聊。"))
             VStack(alignment: .leading, spacing: 11) {
                 feature("arrow.clockwise", "接着聊", "继续电脑上的会话，项目和上下文都还在。")
@@ -216,26 +210,16 @@ struct OnboardingCard: View {
 
     // Channels: WeChat by QR code, iMessage by replying OK; Telegram is coming.
     private var weixin: WeixinState { service.state.channels?.weixin ?? WeixinState() }
-    private var imessage: IMessageState { service.state.channels?.imessage ?? IMessageState() }
     private var channels: some View {
-        let connected = (weixin.connected ? 1 : 0) + (imessage.connected ? 1 : 0)
+        let connected = weixin.connected ? 1 : 0
         return VStack(alignment: .leading, spacing: 0) {
             title("连接你的聊天软件")
             lede(Text("至少连一个。微信凭据只写入这台 Mac 的") + Text("钥匙串").foregroundColor(.primary).bold() + Text("。"))
-            HStack { Text("消息通道").fontWeight(.semibold); Spacer(); Text("\(connected) / 2 已连接").monospacedDigit() }
+            HStack { Text("消息通道").fontWeight(.semibold); Spacer(); Text("\(connected) / 1 已连接").monospacedDigit() }
                 .font(.system(size: 12)).foregroundStyle(.secondary).padding(.top, 20).padding(.bottom, 10)
             Divider()
             channelRow("bubble.left.and.bubble.right", "微信", "扫码绑定自己的微信") { weixinAccessory }
                 .contentShape(Rectangle()).onTapGesture { if weixin.status != "idle" || weixin.bound { pairing = .weixin } }
-            Divider()
-            channelRow("message", "iMessage", "Mac 邮箱与 iPhone 手机号配对，需要完全磁盘访问") { imessageAccessory }
-                .contentShape(Rectangle()).onTapGesture { pairing = .imessage }
-            Divider()
-            channelRow("paperplane", "Telegram", "即将支持") {
-                Text("Coming soon").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
-                    .padding(.horizontal, 8).padding(.vertical, 3).background(.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
-            }
-            .opacity(0.55).accessibilityLabel("Telegram，即将支持")
             Divider()
         }
     }
@@ -258,13 +242,6 @@ struct OnboardingCard: View {
             busyLabel(weixin.statusLabel)
         } else { pill("连接") { pairing = .weixin; service.weixin("start") } }
     }
-    @ViewBuilder private var imessageAccessory: some View {
-        if imessage.connected { doneLabel("已配对") }
-        else if imessage.bound { pill("重新连接") { pairing = .imessage; service.imessage("reconnect") } }
-        else if ["preparing", "dispatching_verification", "awaiting_phone", "connecting"].contains(imessage.status) {
-            busyLabel(imessage.statusLabel)
-        } else { pill("配对") { pairing = .imessage } }
-    }
     private func pill(_ title: String, action: @escaping () -> Void) -> some View {
         Button(title, action: action).buttonStyle(SettingsButtonStyle()).disabled(!service.isRunning || service.channelBusy)
     }
@@ -275,115 +252,20 @@ struct OnboardingCard: View {
         HStack(spacing: 6) { Spinner(size: 12); Text(text) }.font(.system(size: 12)).foregroundStyle(.secondary)
     }
 
-    // Routing: a numbered text menu, or smart routing through Jev; the service matters only for the latter.
-    private var routingState: RoutingState { service.state.routing ?? RoutingState() }
-    private static let providerOrder = ["typesafe", "vercel", "openrouter"]
-    private var providers: [RoutingProvider] {
-        RoutingProvider.all.sorted { (Self.providerOrder.firstIndex(of: $0.id) ?? 9) < (Self.providerOrder.firstIndex(of: $1.id) ?? 9) }
-    }
-    private var chosenProvider: RoutingProvider { RoutingProvider.all.first { $0.id == provider } ?? RoutingProvider.all[0] }
-    private func syncRouting() {
-        Task {
-            _ = await service.routing("get")
-            let state = routingState
-            routeMode = state.mode == "off" ? .menu : .smart
-            if let current = state.provider, state.configured { provider = current }
+    // Task focus: messages continue the current task; switching and starting new are explicit.
+    private var taskDesign: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            title("消息就是任务")
+            lede(Text("普通消息默认继续当前任务。想看其他任务，回复“任务”；想开始新的，回复“新任务”。"))
+            VStack(alignment: .leading, spacing: 11) {
+                feature("arrow.clockwise", "继续", "直接发消息，进入当前任务的同一个 Agent 会话。")
+                feature("list.number", "切换", "回复“任务”查看编号，回复 1、2 切换任务。")
+                feature("plus.circle", "新建", "回复“新任务”，下一条消息开始独立任务。")
+                feature("hand.raised", "隔离", "不同任务各有自己的会话，切换不会污染正在执行的任务。")
+            }.padding(.top, 18)
+            Text("斜杠命令仍然可用，但手机用户不需要记。")
+                .font(.system(size: 12.5)).foregroundStyle(.secondary).padding(.top, 18)
         }
-    }
-    private func setMode(_ mode: RouteMode) {
-        withAnimation(.timingCurve(0.2, 0.8, 0.2, 1, duration: 0.3)) { routeMode = mode }
-        let state = routingState
-        Task {
-            if mode == .menu, state.mode != "off" { _ = await service.routing("configure", params: ["mode": "off"]) }
-            if mode == .smart, state.configured, state.mode == "off", state.provider == provider {
-                _ = await service.routing("configure", params: ["mode": "auto"])
-            }
-        }
-    }
-    private func saveKey() {
-        let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines), id = provider
-        guard !key.isEmpty else { return }
-        Task {
-            if routingState.provider != id { _ = await service.routing("configure", params: ["provider": id]) }
-            if await service.routing("key.save", params: ["provider": id, "apiKey": key]) {
-                apiKey = ""
-                _ = await service.routing("configure", params: ["mode": "auto"])
-            }
-        }
-    }
-    private var routing: some View {
-        let state = routingState
-        return VStack(alignment: .leading, spacing: 0) {
-            title("选择路由方式")
-            lede(Text("手机上的消息要落到某个 Agent 的某个会话里。可以回复编号自己选，也可以交给 ") + Text("Jev").foregroundColor(.primary).bold() + Text(" 模型判断。"))
-            VStack(spacing: 8) {
-                modeChoice(.menu, "文本菜单", "回复编号选择 Agent 和会话，无需配置")
-                modeChoice(.smart, "智能路由", "直接说要做什么，Jev 决定 Agent、会话和是否新建")
-            }.padding(.top, 16)
-            if routeMode == .smart {
-                VStack(alignment: .leading, spacing: 7) {
-                    HStack { Text("路由服务").fontWeight(.semibold); Spacer(); Text("Jev 模型 · 按量计费") }
-                        .font(.system(size: 12)).foregroundStyle(.secondary)
-                    HStack(spacing: 6) {
-                        ForEach(providers) { item in
-                            let on = provider == item.id
-                            Button {
-                                provider = item.id
-                                if routingState.provider != item.id { Task { _ = await service.routing("configure", params: ["provider": item.id]) } }
-                            } label: {
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(item.name).font(.system(size: 12.5, weight: .semibold))
-                                    Text(["typesafe": "官方", "vercel": "AI Gateway", "openrouter": "聚合服务"][item.id] ?? "")
-                                        .font(.system(size: 11)).foregroundStyle(.secondary)
-                                }
-                                .padding(.horizontal, 10).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
-                                .background(on ? OnboardingPalette.accent.opacity(0.09) : .clear, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(on ? OnboardingPalette.accent.opacity(0.65) : .primary.opacity(0.1)))
-                                .contentShape(RoundedRectangle(cornerRadius: 10))
-                            }
-                            .buttonStyle(.plain).disabled(service.routingBusy)
-                        }
-                    }
-                    HStack(spacing: 8) {
-                        SecureField(state.configured && state.provider == provider ? "已保存；填写新 Key 可替换" : "粘贴 \(chosenProvider.name) API Key", text: $apiKey)
-                            .textFieldStyle(.roundedBorder).font(.system(size: 12)).onSubmit(saveKey)
-                        Button("保存并验证", action: saveKey).buttonStyle(SettingsButtonStyle())
-                            .disabled(!service.isRunning || service.routingBusy || apiKey.trimmingCharacters(in: .whitespaces).isEmpty)
-                    }
-                    HStack(spacing: 8) {
-                        if service.routingBusy { Spinner(size: 11) }
-                        if let error = service.routingError { Text(error).foregroundStyle(OnboardingPalette.warn).lineLimit(2) }
-                        else if state.configured && state.provider == provider { Text(state.mode == "off" ? "Key 已存入钥匙串" : "Key 已存入钥匙串 · 智能路由已开启") }
-                        else { Text("没有 Key 时仍使用文本菜单，可以稍后在设置里填写") }
-                        Spacer(minLength: 6)
-                        Link("获取 Key ↗", destination: chosenProvider.keyURL)
-                    }
-                    .font(.system(size: 11.5)).foregroundStyle(.secondary)
-                }
-                .padding(.top, 12)
-                .transition(.opacity.combined(with: .offset(y: -6)))
-            }
-        }
-    }
-    private func modeChoice(_ mode: RouteMode, _ name: String, _ detail: String) -> some View {
-        let on = routeMode == mode
-        return Button { setMode(mode) } label: {
-            HStack(alignment: .top, spacing: 12) {
-                Circle().strokeBorder(on ? OnboardingPalette.accent : Color.secondary.opacity(0.7), lineWidth: on ? 5 : 1.5)
-                    .frame(width: 16, height: 16).padding(.top, 2)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(name).font(.system(size: 13.5, weight: .semibold))
-                    Text(detail).font(.system(size: 12)).foregroundStyle(.secondary)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 14).padding(.vertical, 10)
-            .background(on ? OnboardingPalette.accent.opacity(0.09) : .clear, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(on ? OnboardingPalette.accent.opacity(0.65) : .primary.opacity(0.1)))
-            .contentShape(RoundedRectangle(cornerRadius: 12))
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(on ? .isSelected : [])
     }
 
     private var done: some View {
@@ -434,7 +316,6 @@ struct OnboardingCard: View {
             .buttonStyle(.plain).keyboardShortcut(.defaultAction)
             .disabled(step == 1 && service.isRunning && !scanning && !available.isEmpty && picked.isEmpty)
             if step > 0 { Button("返回") { go(step - 1) }.buttonStyle(GhostButtonStyle()) }
-            if step == 3 { Button("跳过") { go(4) }.buttonStyle(GhostButtonStyle()) }
         }
     }
 
@@ -445,7 +326,7 @@ struct OnboardingCard: View {
         case 0: WelcomeArt()
         case 1: AgentsArt(checks: Dictionary(uniqueKeysWithValues: Agent.all.map { ($0.id, check($0)) }), picked: picked)
         case 2: pairingArt
-        case 3: RoutingArt(smart: routeMode == .smart)
+        case 3: TaskArt(smart: false)
         default: MenuBarArt()
         }
     }
@@ -453,7 +334,6 @@ struct OnboardingCard: View {
         switch pairing {
         case .idle: ArtFrame { PairingIdle() }
         case .weixin: ArtFrame { WeChatPairing(service: service, code: $verificationCode) }
-        case .imessage: ArtFrame(light: true) { IMessagePairing(service: service, email: $email, phone: $phone) }
         }
     }
 }
@@ -522,7 +402,7 @@ struct PairingIdle: View {
             }
             .foregroundStyle(.secondary).padding(.bottom, 8)
             Text("把手机上的聊天软件连到这台 Mac").font(.system(size: 14, weight: .semibold))
-            Text("点左侧的“连接”或“配对”开始。\n微信扫码，iMessage 回复一条 OK。")
+            Text("点左侧的“连接”，用微信扫码开始。")
                 .font(.system(size: 12.5)).foregroundStyle(.secondary).multilineTextAlignment(.center).lineSpacing(4)
         }
         .frame(width: 398, height: 400)
@@ -622,95 +502,5 @@ struct WeChatPairing: View {
         guard let output = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: 8, y: 8)),
               let image = CIContext().createCGImage(output, from: output.extent) else { return nil }
         return NSImage(cgImage: image, size: NSSize(width: output.extent.width, height: output.extent.height))
-    }
-}
-
-/// iMessage pairs by a request sent from this Mac to the iPhone; replying OK there finishes it.
-struct IMessagePairing: View {
-    @ObservedObject var service: BridgeService
-    @Binding var email: String
-    @Binding var phone: String
-    private var state: IMessageState { service.state.channels?.imessage ?? IMessageState() }
-    var body: some View {
-        if !state.bound && ["idle", "error"].contains(state.status) && !state.connected { form } else { conversation }
-    }
-    private var form: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) { SourceIcon(source: "imessage").frame(width: 18, height: 18); Text("iMessage 配对") }
-                .font(.system(size: 13, weight: .semibold))
-            Text("Mac 用邮箱发送，iPhone 用手机号接收。请先在“消息 → 设置 → iMessage”里，把“发起新对话”设为下面的邮箱。")
-                .font(.system(size: 11.5)).foregroundStyle(.secondary).lineSpacing(3).fixedSize(horizontal: false, vertical: true)
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Mac 的 iMessage 邮箱").font(.system(size: 11.5)).foregroundStyle(.secondary)
-                TextField("例如 name@icloud.com", text: $email).textFieldStyle(.roundedBorder)
-                Text("iPhone 手机号").font(.system(size: 11.5)).foregroundStyle(.secondary).padding(.top, 4)
-                TextField("含国家区号，例如 +8613800000000", text: $phone).textFieldStyle(.roundedBorder)
-            }
-            .font(.system(size: 12))
-            HStack(spacing: 10) {
-                Button("发送配对请求") { service.imessage("start", params: ["email": email, "phone": phone]) }
-                    .buttonStyle(SettingsButtonStyle())
-                    .disabled(!service.isRunning || service.channelBusy || email.isEmpty || phone.isEmpty)
-                Button("完全磁盘访问设置") {
-                    if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") { NSWorkspace.shared.open(url) }
-                }.buttonStyle(.link).font(.system(size: 11.5))
-            }
-            Text("会向这个手机号发一条配对请求；在 iPhone 上回复 OK 即可完成。读取回复需要完全磁盘访问。")
-                .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            if let message = service.channelErrors["imessage"] ?? state.message {
-                Text(message).font(.system(size: 11)).foregroundStyle(OnboardingPalette.warn).fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(.leading, 24).padding(.trailing, 86).padding(.top, 26)
-        .frame(width: 460, height: 400, alignment: .topLeading)
-    }
-    /// What the iPhone shows while pairing: the request from this Mac, the OK reply, and the confirmation.
-    private var conversation: some View {
-        let paired = state.connected || state.bound, status = state.status
-        return VStack(spacing: 0) {
-            VStack(spacing: 3) {
-                AppTile(size: 36).clipShape(Circle())
-                Text("Chat Bridge").font(.system(size: 12, weight: .semibold))
-                Text("你的 iPhone 上 · 来自 \(state.email ?? email)").font(.system(size: 10.5)).foregroundStyle(Color(hex: 0x8A8A8E))
-            }
-            .frame(maxWidth: .infinity).frame(height: 82)
-            .background(Color(hex: 0xF8F8FA)).overlay(alignment: .bottom) { Rectangle().fill(Color(hex: 0xD6D6DB)).frame(height: 0.5) }
-            .padding(.trailing, 62)
-            VStack(spacing: 6) {
-                if status == "preparing" || status == "dispatching_verification" {
-                    HStack(spacing: 7) { Spinner(size: 12, color: .gray); Text(status == "preparing" ? "正在检查 Messages 读取权限…" : "正在向 \(state.phone ?? phone) 发送配对请求…") }
-                        .font(.system(size: 12)).foregroundStyle(Color(hex: 0x8A8A8E))
-                } else {
-                    Text("iMessage\n今天").font(.system(size: 10.5)).foregroundStyle(Color(hex: 0x8A8A8E)).multilineTextAlignment(.center)
-                    bubble("Chat Bridge 配对请求\n请确认本条消息的发件邮箱是 \(state.email ?? email)。\n如果这是你刚在 Mac 上发起的请求，请在此对话回复 OK。", outgoing: false)
-                    if paired {
-                        bubble("OK", outgoing: true)
-                        bubble("配置完成，已绑定此账号。", outgoing: false)
-                        Label("认证成功，已配对", systemImage: "checkmark.circle.fill").font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(Color(hex: 0x2E9A5F)).padding(.top, 6)
-                    } else {
-                        HStack(spacing: 7) { Spinner(size: 11, color: .gray); Text("等待你在 iPhone 上回复 OK · 10 分钟内有效") }
-                            .font(.system(size: 11.5)).foregroundStyle(Color(hex: 0x8A8A8E)).padding(.top, 6)
-                        Button("取消配对") { service.imessage("disconnect") }.buttonStyle(.link).font(.system(size: 11.5))
-                    }
-                }
-                if let error = service.channelErrors["imessage"] {
-                    Text(error).font(.system(size: 11)).foregroundStyle(OnboardingPalette.warn).fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .padding(.leading, 18).padding(.trailing, 84).padding(.vertical, 12)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-        }
-        .foregroundStyle(.black)
-        .frame(width: 460, height: 400)
-        .animation(.spring(response: 0.42, dampingFraction: 0.85), value: paired)
-    }
-    private func bubble(_ text: String, outgoing: Bool) -> some View {
-        Text(text).font(.system(size: 13.5)).lineSpacing(2).foregroundStyle(outgoing ? .white : .black)
-            .padding(.horizontal, 12).padding(.vertical, 7)
-            .background(TailBubble(outgoing: outgoing).fill(outgoing ? Color(hex: 0x0A84FF) : Color(hex: 0xE9E9EB)))
-            .frame(maxWidth: 250, alignment: outgoing ? .trailing : .leading)
-            .frame(maxWidth: .infinity, alignment: outgoing ? .trailing : .leading)
-            .transition(.offset(y: 10).combined(with: .opacity))
     }
 }

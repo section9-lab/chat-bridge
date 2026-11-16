@@ -17,7 +17,7 @@ test("each confirmed channel gets one usable command guide without creating an A
   const f = fixture();
   try {
     const selection = f.core.state().selection;
-    for (const kind of ["imessage", "weixin"] as const) {
+    for (const kind of ["weixin"] as const) {
       f.core.bindChannel(kind, "account", "owner");
       f.core.bindChannel(kind, "account", "owner");
       const entries = f.core.outbox().filter((entry) => entry.origin.kind === kind);
@@ -31,14 +31,13 @@ test("each confirmed channel gets one usable command guide without creating an A
       for (const command of ["/status", "/agent", "/mode", "/projects", "/project none", "/sessions", "/sessions all", "/more", "/new", "/stop J", "/continue J", "/cancel J", "/approve A", "/deny A", "/help"]) {
         assert.ok(guide.text.includes(command), command);
       }
-      assert.match(guide.text, /回复.*01.*02/);
+      assert.match(guide.text, /回复任务列表里的 1、2 等编号/);
       assert.doesNotMatch(guide.text, /\/project P|\/use S|\/more M/);
-      assert.match(guide.text, /实际.*编号/);
       assert.ok(!/\/retry/.test(guide.text), "Do not teach commands that are not implemented.");
     }
     const origin = { kind: "desktop" as const, accountId: "local", peerId: "local", eventId: "help" };
     const help = f.core.receive(origin, "/help").message!;
-    assert.match(help, /命令指南/);
+    assert.match(help, /Chat Bridge 使用说明/);
     assert.ok(f.core.outbox()[0]!.text.endsWith(help));
     assert.deepEqual(f.core.state().selection, selection);
     assert.equal(f.core.state().jobs.length, 0);

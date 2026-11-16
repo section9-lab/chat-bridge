@@ -4,6 +4,8 @@
 
 2026-09-20 路由范围更新：按用户要求增加可选的 Vercel／Jev 语义路由，默认关闭；后文“不增加路由模型”的早期约束由 [ADR 005](decisions/005-semantic-routing.md) 调整。
 
+2026-11-16 状态：iMessage 与 JEV 已移除，当前实现为微信单通道 WorkItem + 任务焦点。见 [微信单通道 Super Agent 改造方案](wechat-only-super-agent-plan.md)。以下多通道与 JEV 内容保留为历史设计。
+
 本方案将产品要求、实施决策、已核验事实和待验证能力分开记录。配套的 [验证与验收清单](verification-checklist.md) 给出了步骤、通过标准和发布门槛；[研究证据](research/evidence-2026-09-18.json) 保存实际运行结果、依赖版本和源码指纹。
 
 **当前决定：SwiftUI／AppKit 原生应用，加随包 Node.js／TypeScript 消息服务。用户已明确接受 Codex 先使用本机官方 App Server，由 Chat Bridge 管理会话；暂不接管已有桌面会话。** 具体约束与实现见 [ADR 003](decisions/003-managed-codex-runtime.md)。Claude Code、Chat、Cowork 继续分阶段接入。ACP 仍为可选协议，不增加路由 Agent。

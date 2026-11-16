@@ -151,7 +151,7 @@ final class IntroDirector: ObservableObject {
         send(stamp: "iMessage · 今天 21:12")
         try await pause(0.35)
         select("claude", subtitle: webApp)
-        append(IntroMessage(kind: .user(source: "imessage"), text: webApp), to: "claude")
+        append(IntroMessage(kind: .user(source: "weixin"), text: webApp), to: "claude")
         setPreview("claude", "正在创建项目…", busy: true)
         try await pause(0.55)
         append(IntroMessage(kind: .agent("claude"), quote: webApp, status: "正在创建项目…", working: true), to: "claude")

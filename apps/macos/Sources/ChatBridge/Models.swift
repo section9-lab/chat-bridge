@@ -38,7 +38,7 @@ struct Preferences: Decodable {
     var pinned = ["codex", "claude", "cursor"]
     var keepAlive = false
     var names: [String: String] = [:]
-    /// Agents the phone channels and smart routing may use. The Mac app can still open any of them.
+    /// Agents the phone channel may use. The Mac app can still open any of them.
     var enabledAgents = Agent.all.map(\.id)
     private enum CodingKeys: String, CodingKey { case defaultAgent, pinned, keepAlive, names, enabledAgents }
     init() {}
@@ -93,7 +93,6 @@ enum MessageSource {
     private static var cache: [String: NSImage] = [:]
     static func name(_ source: String?) -> String {
         switch source {
-        case "imessage": return "iMessage"
         case "weixin": return "微信"
         case "desktop": return "这台 Mac"
         default: return "你"
@@ -105,7 +104,6 @@ enum MessageSource {
         if let cached = cache[source] { return cached }
         let image: NSImage?
         switch source {
-        case "imessage": image = appIcon("com.apple.MobileSMS")
         case "weixin": image = appIcon("com.tencent.xinWeChat")
         // A message typed on this Mac: the system computer symbol, as a peer of the phone channels.
         case "desktop": image = NSImage(systemSymbolName: "laptopcomputer", accessibilityDescription: "这台 Mac")
@@ -142,15 +140,12 @@ struct JobSummary: Decodable, Identifiable {
     var target: Selection
     var sessionId: String?
     var externalControl: Bool?
-    var routing: RoutePendingSummary?
     var routeMessage: String?
-    var canContinue: Bool { ["waiting_agent", "awaiting_confirmation", "awaiting_route"].contains(status) }
-    var canCancel: Bool { ["accepted", "preparing", "waiting_agent", "awaiting_confirmation", "routing", "awaiting_route"].contains(status) }
+    var canContinue: Bool { ["waiting_agent", "awaiting_confirmation"].contains(status) }
+    var canCancel: Bool { ["accepted", "preparing", "waiting_agent", "awaiting_confirmation"].contains(status) }
     var canStop: Bool { externalControl != true && ["dispatching", "running", "awaiting_approval"].contains(status) }
     var statusLabel: String {
         switch status {
-        case "routing": return "正在判断 Agent、项目和会话…"
-        case "awaiting_route": return "等待选择目标，任务尚未发送"
         case "queued": return "已加入原会话队列，等待执行"
         case "running", "dispatching": return Agent.find(target.agent).name + " 正在执行…"
         case "awaiting_approval": return "等待你的单次确认"
@@ -164,23 +159,6 @@ struct JobSummary: Decodable, Identifiable {
         }
     }
 }
-struct RouteOptionSummary: Decodable, Identifiable {
-    var id: String
-    var label: String
-}
-struct RoutePendingSummary: Decodable {
-    var options: [RouteOptionSummary]?
-}
-struct RoutingState: Decodable {
-    var provider: String?
-    var mode = "auto"
-    var planning = "claude"
-    var implementation = "cursor"
-    var research = "default"
-    var configured = false
-    var verifiedAt: String?
-}
-
 struct ConnectorProviderState: Decodable {
     var configured = false
     var status = "unconfigured"
@@ -227,25 +205,6 @@ struct ConnectorLink: Decodable {
     var expiresAt: String
 }
 
-struct RoutingProvider: Identifiable {
-    let id: String
-    let name: String
-    let keyURL: URL
-    let infoURL: URL
-    let note: String
-    let recipients: String
-    static let all = [
-        Self(id: "vercel", name: "Vercel", keyURL: URL(string: "https://vercel.com/ai-gateway")!,
-             infoURL: URL(string: "https://vercel.com/ai-gateway/models/jev")!,
-             note: "Jev 按量计费，费用计入你的 Vercel 账户；可能需要先验证付款方式。保存并验证也会调用一次模型。", recipients: "Vercel／TypeSafe"),
-        Self(id: "openrouter", name: "OpenRouter", keyURL: URL(string: "https://openrouter.ai/settings/keys")!,
-             infoURL: URL(string: "https://openrouter.ai/typesafe/jev-1.13")!,
-             note: "Jev 按量计费，费用计入你的 OpenRouter 账户。保存并验证也会调用一次模型，请先确认账户额度。", recipients: "OpenRouter／TypeSafe"),
-        Self(id: "typesafe", name: "TypeSafe", keyURL: URL(string: "https://console.typesafe.ai/settings/keys")!,
-             infoURL: URL(string: "https://docs.typesafe.ai/api")!,
-             note: "Jev 官方接口，按量计费，费用计入你的 TypeSafe 账户；控制台目前需先申请开通。保存并验证也会调用一次模型。", recipients: "TypeSafe")
-    ]
-}
 struct ApprovalSummary: Decodable, Identifiable {
     var id: String
     var jobId: String
@@ -280,29 +239,9 @@ struct WeixinState: Decodable {
         }
     }
 }
-struct IMessageState: Decodable {
-    var status = "idle"
-    var bound = false
-    var connected = false
-    var email: String?
-    var phone: String?
-    var message: String?
-    var statusLabel: String {
-        if connected { return "已连接" }
-        switch status {
-        case "preparing": return "检查权限"
-        case "dispatching_verification": return "正在发送配对请求"
-        case "awaiting_phone": return "等待手机回复 OK"
-        case "connecting", "connected": return "连接中"
-        case "error": return "需要检查"
-        default: return "未连接"
-        }
-    }
-}
 struct ChannelStates: Decodable {
     var weixin: WeixinState
-    var imessage: IMessageState?
-    var connected: Bool { weixin.connected || imessage?.connected == true }
+    var connected: Bool { weixin.connected }
 }
 struct DeliverySummary: Decodable, Identifiable {
     var id: String
@@ -323,7 +262,6 @@ struct BridgeState: Decodable {
     var deliveries: [DeliverySummary]?
     var approvals: [ApprovalSummary]?
     var probes: [String: AgentProbe]?
-    var routing: RoutingState?
     var connectors: ConnectorStateSummary?
 }
 struct AgentProbe: Decodable {

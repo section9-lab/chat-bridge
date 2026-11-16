@@ -2,6 +2,10 @@
 
 日期：2026-09-20。状态：首版配置和路由已实现，按最新要求保留 Vercel、OpenRouter 两种入口，移除 Jev for hood。验证后的 Key 保留在输入框，可显示／隐藏；用户已验证 OpenRouter 连接，中文路由准确率仍待实际评测。2026-09-24 起取消 Vercel 按日期停用，并增加 TypeSafe 官方接口：Vercel、OpenRouter、TypeSafe 三种入口都由用户用自己的账户申请 Key，费用计入用户账户；Chat Bridge 只提供软件，不提供或代付 Key，出错时也不自动换服务。第 4 节关于试验停用时间的内容已不再适用。实际范围与验证见 [ADR 005](decisions/005-semantic-routing.md) 和 [验证记录](verification/smart-routing-2026-09-20.md)。以下保留最初的设计与验收计划。
 
+2026-11-10 后续设计：[Super-agent 风格的路由与对话改造设计](super-agent-routing-design.md)。
+
+2026-11-16 状态：JEV 路由已移除。当前实现为微信单通道 WorkItem + 任务焦点，见 [微信单通道 Super Agent 改造方案](wechat-only-super-agent-plan.md)。本文件保留为历史设计记录。
+
 目标：用户用自然语言描述任务，Chat Bridge 自动选择 Agent、项目和会话；连续对话保持在同一原生会话，能够自然地新建、返回旧会话或退出项目。
 
 建议采用**会话连续性优先的自然语言路由**。先理解消息和当前任务的关系，再决定目标。默认的 Agent 分工只用于新任务，不因为一句话从“规划”变成“写代码”就迁移正在进行的对话。

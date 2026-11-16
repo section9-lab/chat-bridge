@@ -74,7 +74,7 @@ function normalizeToolkit(value: unknown): ConnectorDefinition | undefined {
 function normalizeStatus(value: unknown): ConnectedConnectorAccount["status"] {
   switch (String(value ?? "").toUpperCase()) {
     case "ACTIVE": case "CONNECTED": return "active";
-    case "INITIATED": case "CONNECTING": case "PENDING": return "connecting";
+    case "INITIALIZING": case "INITIATED": case "CONNECTING": case "PENDING": return "connecting";
     case "EXPIRED": return "expired";
     case "REVOKED": case "DISABLED": return "revoked";
     default: return "error";
@@ -165,9 +165,18 @@ export class ComposioConnectorController {
   async listAccounts(): Promise<ConnectedConnectorAccount[]> {
     const key = await this.key();
     const query = new URLSearchParams({ user_ids: this.store.userID(), limit: "100" });
-    const response = await this.request("/connected_accounts?" + query, { apiKey: key });
+    const all: unknown[] = [], seen = new Set<string>();
+    let cursor: string | undefined;
+    do {
+      if (cursor) query.set("cursor", cursor);
+      const response = await this.request("/connected_accounts?" + query, { apiKey: key });
+      all.push(...rows(response));
+      cursor = nextCursor(response);
+      if (cursor && (seen.has(cursor) || seen.size >= 100)) throw new BridgeError("CONNECTOR_SERVICE", "账号列表分页异常，请稍后重试。");
+      if (cursor) seen.add(cursor);
+    } while (cursor);
     const policies = new Map(this.store.policies().map((policy) => [policy.accountId, policy]));
-    this.accounts = rows(response).flatMap((value): ConnectedConnectorAccount[] => {
+    this.accounts = all.flatMap((value): ConnectedConnectorAccount[] => {
       const item = object(value), toolkit = object(item.toolkit), id = string(item.id, item.nanoid);
       const slug = string(item.toolkit_slug, item.toolkitSlug, toolkit.slug)?.toLowerCase();
       if (!id || !slug) return [];
@@ -190,7 +199,12 @@ export class ComposioConnectorController {
     }
     if (callbackURL !== "chatbridge-connectors://complete") throw new BridgeError("INVALID_INPUT", "认证回调地址无效。");
     const configs = await this.request("/auth_configs?" + new URLSearchParams({ toolkit_slug: connectorSlug, limit: "100" }), { apiKey: key });
-    let authConfigId = rows(configs).map((entry) => string(object(entry).id, object(entry).nanoid)).find(Boolean);
+    const availableConfigs = rows(configs).filter((entry) => object(entry).is_disabled !== true && object(entry).isDisabled !== true)
+      .map((entry) => string(object(entry).id, object(entry).nanoid)).filter((id): id is string => !!id);
+    if (availableConfigs.length > 1 || nextCursor(configs)) {
+      throw new BridgeError("CONNECTOR_CONFIG_AMBIGUOUS", "此服务有多个认证配置，请先在 Composio 控制台保留一个可用配置，再重试。");
+    }
+    let authConfigId = availableConfigs[0];
     if (!authConfigId) {
       const created = await this.request("/auth_configs", { apiKey: key, method: "POST", body: {
         toolkit: { slug: connectorSlug }, auth_config: { type: "use_composio_managed_auth", name: "Chat Bridge · " + connectorSlug }
@@ -202,9 +216,14 @@ export class ComposioConnectorController {
       auth_config_id: authConfigId, user_id: this.store.userID(), callback_url: callbackURL
     } });
     const redirectURL = string(object(linked).redirect_url, object(linked).redirectUrl);
-    if (!redirectURL || !redirectURL.startsWith("https://")) throw new BridgeError("CONNECTOR_UNAVAILABLE", "连接服务未返回安全的认证地址。");
+    let parsed: URL;
+    try { parsed = new URL(redirectURL ?? ""); }
+    catch { throw new BridgeError("CONNECTOR_UNAVAILABLE", "连接服务未返回有效的认证地址。"); }
+    if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.port) {
+      throw new BridgeError("CONNECTOR_UNAVAILABLE", "连接服务未返回安全的认证地址。");
+    }
     return { attemptId: string(object(linked).id, object(linked).connected_account_id, object(linked).connectedAccountId) ?? randomUUID(),
-      redirectURL, expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString() };
+      redirectURL: parsed.href, expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString() };
   }
 
   async complete(): Promise<ConnectedConnectorAccount[]> { return this.listAccounts(); }
@@ -245,14 +264,13 @@ export class ComposioConnectorController {
     try {
       response = await this.fetchFn(endpoint + path, { method: options.method ?? "GET", headers: {
         "x-api-key": options.apiKey, "accept": "application/json", ...(options.body ? { "content-type": "application/json" } : {})
-      }, ...(options.body ? { body: JSON.stringify(options.body) } : {}) });
+      }, redirect: "error", signal: AbortSignal.timeout(12_000), ...(options.body ? { body: JSON.stringify(options.body) } : {}) });
     } catch { throw new BridgeError("CONNECTOR_NETWORK", "无法连接 Composio，请检查网络后重试。"); }
     const payload = await response.json().catch(() => ({})) as unknown;
     if (!response.ok) {
-      const detail = string(object(payload).message, object(payload).error, object(object(payload).detail).message);
       if (response.status === 401 || response.status === 403) throw new BridgeError("CONNECTOR_AUTH", "Composio API Key 无效或权限不足。");
       if (response.status === 429) throw new BridgeError("CONNECTOR_RATE_LIMIT", "连接器服务请求过多，请稍后重试。");
-      throw new BridgeError("CONNECTOR_SERVICE", detail ? "连接器服务拒绝请求：" + detail.slice(0, 300) : "连接器服务暂时不可用。");
+      throw new BridgeError("CONNECTOR_SERVICE", "连接器服务拒绝请求或此认证方式需要在 Composio 控制台配置，请检查服务设置后重试。");
     }
     return payload;
   }

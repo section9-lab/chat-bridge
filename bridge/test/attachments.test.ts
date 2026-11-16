@@ -25,7 +25,6 @@ function fixture() {
     },
   };
   const service = createService(input, output, join(directory, "bridge.sqlite"), { codex: adapter });
-  service.core.setRoutingSettings({ mode: "off" }); // attachments are not about routing; keep messages going straight to the current target
   return { directory, native, service, prompts,
     close() { native.close(); service.close(); rmSync(directory, { recursive: true, force: true }); } };
 }
@@ -96,73 +95,5 @@ test("attachments survive stale target rejection and attached command text is tr
     await f.service.core.run(receipt.jobId);
     assert.ok(f.prompts[0]?.includes(file.path));
     assert.equal(f.service.core.state().jobs.length, 1);
-  } finally { f.close(); }
-});
-
-test("a routing failure with an explicitly opened agent still delivers the attachment there", async () => {
-  const f = fixture();
-  try {
-    const source = join(f.directory, "note.txt"); writeFileSync(source, "hello");
-    const files = await f.native.call<any[]>("attachments.import", { paths: [source] });
-    f.service.core.setRoutingSettings({ mode: "auto" });
-    f.service.core.routeDecision = async () => { throw new Error("offline"); };
-    await f.service.core.openAgent("codex");
-    const origin = { kind: "desktop" as const, accountId: "local", peerId: "local", eventId: "route-file" };
-    const receipt = f.service.core.receive(origin, "读取附件", undefined, files);
-    await f.service.core.run(receipt.jobId!);
-    const job = f.service.core.state().jobs[0]!;
-    assert.equal(job.status, "completed");
-    assert.ok(f.prompts[0]?.includes(files[0].path));
-  } finally { f.close(); }
-});
-
-test("routing failure with no established target retains attachments until one is selected", async () => {
-  const f = fixture();
-  try {
-    const source = join(f.directory, "note.txt"); writeFileSync(source, "hello");
-    const files = await f.native.call<any[]>("attachments.import", { paths: [source] });
-    f.service.core.setRoutingSettings({ mode: "auto" });
-    f.service.core.routeDecision = async () => { throw new Error("offline"); };
-    const origin = { kind: "desktop" as const, accountId: "local", peerId: "local", eventId: "route-file" };
-    const receipt = f.service.core.receive(origin, "读取附件", undefined, files);
-    await f.service.core.run(receipt.jobId!);
-    const job = f.service.core.state().jobs[0]!;
-    assert.equal(job.status, "awaiting_route");
-    assert.equal(job.attachments?.[0]?.id, files[0].id);
-    // Nothing is engaged yet, so no destination is guessed: only manual selection is offered, and the file is not lost.
-    assert.deepEqual(job.routing!.options, []);
-  } finally { f.close(); }
-});
-
-test("a routing clarification carries its new attachments into the original task", async () => {
-  const f = fixture();
-  try {
-    const source = join(f.directory, "note.txt"); writeFileSync(source, "hello");
-    const files = await f.native.call<any[]>("attachments.import", { paths: [source] });
-    f.service.core.setRoutingSettings({ mode: "auto" });
-    const answer = (choice: string) => ({ choice, confidence: 1, probabilities: { [choice]: 1 } });
-    const origin = { kind: "desktop" as const, accountId: "local", peerId: "local", eventId: "original" };
-    f.service.core.routeDecision = async () => answer("clarify");
-    const original = f.service.core.receive(origin, "分析这份材料");
-    await f.service.core.run(original.jobId!);
-    f.service.core.routeDecision = async context => answer(context.text === "补充材料" ? "answer_" + original.jobId : "new_codex_none");
-    const followup = f.service.core.receive({ ...origin, eventId: "followup" }, "补充材料", undefined, files);
-    await f.service.core.run(followup.jobId!);
-    assert.equal(f.prompts.length, 1);
-    assert.ok(f.prompts[0]?.includes(files[0].path));
-  } finally { f.close(); }
-});
-
-test("a non-sending route cannot silently consume attached files", async () => {
-  const f = fixture();
-  try {
-    const source = join(f.directory, "note.txt"); writeFileSync(source, "hello");
-    const files = await f.native.call<any[]>("attachments.import", { paths: [source] });
-    f.service.core.setRoutingSettings({ mode: "auto" });
-    f.service.core.routeDecision = async () => ({ choice: "list_status", confidence: 1, probabilities: { list_status: 1 } });
-    const receipt = f.service.core.receive({ kind: "desktop", accountId: "local", peerId: "local", eventId: "files" }, "检查文件", undefined, files);
-    await f.service.core.run(receipt.jobId!);
-    assert.equal(f.service.core.state().jobs[0]?.status, "awaiting_route");
-    assert.equal(f.prompts.length, 0);
   } finally { f.close(); }
 });

@@ -6,7 +6,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { RPCPeer } from "../src/rpc.js";
 import { createService } from "../src/service.js";
-import type { Message } from "@photon-ai/imessage-kit";
 import type { AgentAdapter } from "../src/core.js";
 
 function fixture() {
@@ -19,7 +18,6 @@ function fixture() {
     "native.agent.send": () => { nativeMutations++; return {}; },
   });
   const service = createService(ab, ba, join(directory, "bridge.sqlite"));
-  service.core.setRoutingSettings({ mode: "off" }); // these tests are not about routing; keep messages going straight to the current target
   return { native, service, mutations: () => nativeMutations,
     close() { native.close(); service.close(); rmSync(directory, { recursive: true, force: true }); } };
 }
@@ -84,7 +82,6 @@ test("IPC publishes growing Markdown beyond 1000 characters and bounds large his
     sendTurn: async (_session, _text, _id, events) => { hooks = events; hooks.started("turn"); return new Promise((resolve) => { done = resolve; }); }
   };
   const service = createService(ab, ba, join(directory, "bridge.sqlite"), { codex: adapter });
-  service.core.setRoutingSettings({ mode: "off" }); // streaming/truncation is not about routing; keep messages going straight to the current target
   const snapshots: any[] = []; native.onEvent = (method, state) => { if (method === "state.changed") snapshots.push(state); };
   try {
     const job = service.core.receive({ kind: "desktop", accountId: "local", peerId: "local", eventId: "task" }, "task");
@@ -140,11 +137,9 @@ test("a stale desktop composer cannot send into a newly selected agent", async (
 test("channel state and cancellation are available without authorizing a social sender", async () => {
   const f = fixture();
   try {
-    const state = await f.native.call<{ channels: { weixin: { status: string; connected: boolean }; imessage: { status: string; connected: boolean } } }>("state.get");
+    const state = await f.native.call<{ channels: { weixin: { status: string; connected: boolean } } }>("state.get");
     assert.equal(state.channels?.weixin.status, "idle");
     assert.equal(state.channels.weixin.connected, false);
-    assert.equal(state.channels.imessage?.status, "idle");
-    await assert.rejects(f.native.call("channel.imessage.start", { email: "invalid", phone: "1234" }), { code: "INVALID_INPUT" });
     await f.native.call("channel.weixin.cancel", {});
     assert.equal(f.service.core.state().bindings.length, 0);
     await assert.rejects(f.native.call("channel.weixin.confirm", { attemptId: "not-scanned" }));
@@ -161,40 +156,6 @@ test("task controls target a saved job without depending on the current composer
     assert.equal(f.service.core.state().jobs[0]?.status, "cancelled");
     await assert.rejects(f.native.call("task.action", { action: "exec", jobId: receipt.jobId, eventId: "bad" }), { code: "INVALID_INPUT" });
   } finally { f.close(); }
-});
-
-test("a long-polling WeChat request cannot stall iMessage task scheduling", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "bridge-independent-channels-"));
-  const ab = new PassThrough(), ba = new PassThrough();
-  const phone = "+6591234567", email = "bridge@example.com", chatId = "iMessage;-;" + phone;
-  const native = new RPCPeer(ba, ab, {
-    "native.agent.probe": () => ({ ready: false, reason: "G0_NOT_VERIFIED" }),
-    "native.weixin.credential.read": () => ({ accountId: "bot", ownerId: "owner", token: "fixture",
-      baseUrl: "https://ilinkai.weixin.qq.com", contextKey: Buffer.alloc(32, 4).toString("base64") }),
-  });
-  const service = createService(ab, ba, join(directory, "bridge.sqlite"), {
-    fetchFn: (_input, init) => new Promise((_resolve, reject) => {
-      init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
-    }),
-    iMessageSource: () => ({ tail: () => ({ rowId: 0, guid: "" }), matches: () => true,
-      read: async (after) => after ? [] : [{ rowId: 1, id: "phone-task", text: "task", service: "iMessage", participant: phone,
-        chatKind: "dm", chatId, kind: "text", isFromMe: false, attachments: [] } as unknown as Message],
-      send: async () => {}, close: async () => {}, }),
-  });
-  service.core.setRoutingSettings({ mode: "off" }); // channel scheduling is not about routing; keep messages going straight to the current target
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    service.core.bindChannel("weixin", "bot", "owner");
-    service.core.activateIMessage({ email, phone, chatId }, JSON.stringify({ rowId: 0, guid: "" }));
-    const scheduled = new Promise<boolean>((resolve) => {
-      native.onEvent = (method, value) => {
-        if (method === "state.changed" && (value as { jobs?: { status: string }[] }).jobs?.some((job) => job.status === "waiting_agent")) resolve(true);
-      };
-      timer = setTimeout(() => resolve(false), 1000);
-    });
-    service.start();
-    assert.equal(await scheduled, true, "The job must advance while getupdates is still awaiting a response.");
-  } finally { clearTimeout(timer); service.close(); native.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
 test("Codex service uses its managed runtime instead of claiming native desktop control", async () => {

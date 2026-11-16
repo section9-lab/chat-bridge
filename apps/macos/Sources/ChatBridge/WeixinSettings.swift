@@ -90,14 +90,8 @@ struct TaskControls: View {
     var job: JobSummary
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
-            if job.status == "awaiting_route", let options = job.routing?.options {
-                ForEach(Array(options.enumerated()), id: \.element.id) { index, option in
-                    Button(option.label) { service.resolveRouting(job, index: index + 1) }
-                        .multilineTextAlignment(.leading)
-                }
-            }
             HStack(spacing: 14) {
-                if job.canContinue { Button(job.status == "awaiting_route" ? "重试路由" : "继续") { service.taskAction("continue", job: job) } }
+                if job.canContinue { Button("继续") { service.taskAction("continue", job: job) } }
                 if job.canCancel { Button("取消任务") { service.taskAction("cancel", job: job) } }
                 if job.canStop { Button("停止任务") { service.taskAction("stop", job: job) } }
             }
