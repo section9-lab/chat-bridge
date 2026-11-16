@@ -25,6 +25,44 @@ Chat Bridge is a macOS menu bar app that connects WeChat to the AI agents on you
 - **Get the result** — Receive replies and files your task produces, including images, videos, and documents.
 - **One familiar place** — Click the single menu bar logo to reopen your last conversation and draft.
 
+## Architecture
+
+```mermaid
+flowchart LR
+    Phone["WeChat on your phone"]
+    WeChat["WeChat iLink"]
+    subgraph Mac["Your Mac"]
+        direction TB
+        Channel["WeChat channel"]
+        Ingress["Ingress<br/>dedupe + cursor"]
+        Router{"IntentRouter<br/>natural language + numbers"}
+        Work["WorkItem store<br/>current task + history"]
+        Scheduler["Scheduler<br/>one turn per task"]
+        Adapters["Agent adapters"]
+        Sessions["Native agent sessions"]
+        Files["Projects, files, credentials"]
+        Outbox["Outbox<br/>reply to origin"]
+        UI["macOS UI<br/>settings + task status"]
+    end
+    Agents["Codex · Claude Code · Cursor<br/>Grok · OpenCode · Hermes"]
+
+    Phone -->|text| WeChat --> Channel --> Ingress --> Router
+    Router -->|"tasks / progress"| Work
+    Router -->|"new task / continue"| Work
+    Router -->|ordinary message| Scheduler
+    Work --> Scheduler
+    Scheduler --> Adapters
+    Adapters --> Agents
+    Adapters --> Sessions
+    Sessions --> Files
+    Scheduler --> Outbox --> Channel
+    Channel --> WeChat --> Phone
+    UI --- Work
+    UI --- Scheduler
+```
+
+Messages stay on your Mac and are handed to the native agent session that owns the current task. Switching tasks changes the WorkItem focus, not the session already running. See [the full design](docs/wechat-only-super-agent-plan.md) for the Mermaid task flow and state model.
+
 ## Try saying
 
 > Use Codex to continue the Travel Checklist project and plan my weekend.
@@ -33,9 +71,7 @@ Chat Bridge is a macOS menu bar app that connects WeChat to the AI agents on you
 
 > List Claude's conversations in the Store project.
 
-With smart routing enabled, Chat Bridge identifies your intended destination. When it cannot decide, it keeps your original message and offers text options. Reply with a number or an option to continue.
-
-A receipt shows exactly where each task goes, for example:
+Ordinary messages continue the current task. Say **任务** or **进度** to list tasks and reply with a number to switch; say **新任务** to start a separate task. A receipt shows exactly where each task goes, for example:
 
 ```text
 Codex > Travel > Weekend plan
@@ -46,7 +82,7 @@ Received ✅
 
 Choose a DMG from [Releases](https://github.com/section9-lab/chat-bridge/releases): **arm64** for Apple Silicon or **x86_64** for Intel. Open it and drag **Chat Bridge** to **Applications**. If no release is available yet, build from source below.
 
-The DMGs use ad-hoc signing and are not notarized by Apple. If the first launch is blocked, review the download and use **System Settings → Privacy & Security → Open Anyway** for this app. Updates may require granting Full Disk Access again.
+The DMGs use ad-hoc signing and are not notarized by Apple. If the first launch is blocked, review the download and use **System Settings → Privacy & Security → Open Anyway** for this app. The app checks GitHub Releases at launch and hourly; you can also check manually from Settings or the menu bar.
 
 <details>
 <summary>Build and run from source</summary>
@@ -58,15 +94,13 @@ bash scripts/build-app.sh
 open "dist/Chat Bridge.app"
 ```
 
-The build uses an Apple Development signing certificate by default. Without one, prefix the build command with `CHAT_BRIDGE_SIGNING_IDENTITY=-`. Updates to this locally signed build may require granting Full Disk Access again.
+The build uses an Apple Development signing certificate by default. Without one, prefix the build command with `CHAT_BRIDGE_SIGNING_IDENTITY=-`. This locally signed build is not notarized by Apple.
 
 </details>
 
 1. **Connect an agent** — Install and sign in to your preferred agent on the Mac, then check its status in Chat Bridge.
 2. **Pair a messaging channel** — Open Settings → Messaging Channels. Scan the WeChat QR code.
-3. **Send your first message** — Configure a routing provider and enable automatic selection in Smart Routing. Tell the agent what you need from your phone, or chat directly in the menu bar panel.
-
-Without smart routing, choose a destination in the app or use text menus and manual commands.
+3. **Send your first message** — Tell the agent what you need from WeChat, or chat directly in the menu bar panel. Ordinary messages continue the current task; say **任务** (tasks) to switch or **新任务** (new task) to start a new one.
 
 ## Works with your agents
 
@@ -79,7 +113,7 @@ Uses each agent's local sign-in and model configuration. Start a conversation in
 - Requires **macOS 13.5+**, with the Mac awake, online, and Chat Bridge running.
 - On your Mac, type **@filename** to search and attach local files from inline suggestions; the paperclip on the left opens the same search (up to 10 per message, 50 MiB each). Replies quote the original message. WeChat input remains **text only**; incoming voice, images, and attachments are not executed as tasks. Eligible output files can be returned to the originating chat.
 - Messages can trigger file changes, commands, and network access. Codex and Claude Code conversations created or resumed by Bridge use full execution permissions by default. Pair only your own trusted accounts.
-- Conversation state stays on your Mac. Messages are processed by your selected messaging and agent services; smart routing also sends the message and relevant destination context to your configured routing provider.
+- Conversation state stays on your Mac. Messages are processed by WeChat and your selected agent service; no separate routing provider is contacted.
 - Uncertain sends are not automatically retried or executed again. The app interface, system receipts, and the intro above are currently primarily Chinese.
 
 ## More

@@ -25,6 +25,44 @@ Chat Bridge 是一款 macOS 菜单栏应用。把微信连接到 Mac 上的 AI A
 - **拿到结果**：接收回复，以及任务产出的图片、视频和文档。
 - **随手打开**：菜单栏只留一个 Logo，点击恢复上次会话和草稿。
 
+## 架构
+
+```mermaid
+flowchart LR
+    Phone["手机微信"]
+    WeChat["微信 iLink"]
+    subgraph Mac["你的 Mac"]
+        direction TB
+        Channel["微信通道"]
+        Ingress["Ingress<br/>去重 + 游标"]
+        Router{"IntentRouter<br/>自然语言 + 编号"}
+        Work["WorkItem 存储<br/>当前任务 + 历史"]
+        Scheduler["Scheduler<br/>同一任务串行"]
+        Adapters["Agent 适配器"]
+        Sessions["原生 Agent 会话"]
+        Files["项目、文件、凭据"]
+        Outbox["Outbox<br/>回复原通道"]
+        UI["macOS 界面<br/>设置 + 任务状态"]
+    end
+    Agents["Codex · Claude Code · Cursor<br/>Grok · OpenCode · Hermes"]
+
+    Phone -->|文字| WeChat --> Channel --> Ingress --> Router
+    Router -->|"任务 / 进度"| Work
+    Router -->|"新任务 / 继续"| Work
+    Router -->|普通消息| Scheduler
+    Work --> Scheduler
+    Scheduler --> Adapters
+    Adapters --> Agents
+    Adapters --> Sessions
+    Sessions --> Files
+    Scheduler --> Outbox --> Channel
+    Channel --> WeChat --> Phone
+    UI --- Work
+    UI --- Scheduler
+```
+
+消息保存在你的 Mac 上，交给当前任务对应的原生 Agent 会话。切换任务只改变 WorkItem 焦点，不会改变正在运行的会话。完整设计与 Mermaid 流程图见 [微信单通道 Super Agent 方案](docs/wechat-only-super-agent-plan.md)。
+
 ## 你可以这样说
 
 > 用 Codex 继续「旅行清单」项目，帮我整理周末计划。
@@ -33,9 +71,7 @@ Chat Bridge 是一款 macOS 菜单栏应用。把微信连接到 Mac 上的 AI A
 
 > 列出 Claude 在「商城」项目里的会话。
 
-开启智能路由后，Chat Bridge 会理解你的目标。判断不清时，它会保留原消息，给出可回复的文本选项；回复编号或选项文字就能继续，不必记住命令。
-
-每次接收任务，都会告诉你消息发到了哪里：
+普通消息默认继续当前任务。回复“任务”或“进度”查看任务列表，回复编号切换；回复“新任务”开始独立任务。每次接收任务，都会告诉你消息发到了哪里：
 
 ```text
 Codex > 旅行清单 > 周末计划
@@ -46,7 +82,7 @@ Codex > 旅行清单 > 周末计划
 
 在 [Releases](https://github.com/section9-lab/chat-bridge/releases) 选择 DMG：Apple Silicon 使用 **arm64**，Intel 使用 **x86_64**。打开后将 **Chat Bridge** 拖入 **Applications**。如果尚无可用版本，可按下方说明从源码构建。
 
-DMG 使用 ad-hoc 签名，未经 Apple 公证。首次打开若被阻止，请先确认下载来源，再在「系统设置 → 隐私与安全性」中对该应用选择「仍要打开」。更新后可能需要重新授予完全磁盘访问权限。
+DMG 使用 ad-hoc 签名，未经 Apple 公证。首次打开若被阻止，请先确认下载来源，再在「系统设置 → 隐私与安全性」中对该应用选择「仍要打开」。应用启动后和每小时会检查 GitHub Releases；也可以在设置或菜单栏手动检查更新。
 
 <details>
 <summary>从源码运行</summary>
@@ -58,15 +94,13 @@ bash scripts/build-app.sh
 open "dist/Chat Bridge.app"
 ```
 
-默认使用 Apple Development 证书签名。没有证书时，在构建命令前加 `CHAT_BRIDGE_SIGNING_IDENTITY=-`；这种本地签名更新后可能需要重新授予完全磁盘访问权限。
+默认使用 Apple Development 证书签名。没有证书时，在构建命令前加 `CHAT_BRIDGE_SIGNING_IDENTITY=-`；这种本地签名构建未经过 Apple 公证。
 
 </details>
 
 1. **连接 Agent** — 在 Mac 上安装并登录常用 Agent，在 Chat Bridge 里检查连接状态。
 2. **配对消息通道** — 打开「设置 → 消息通道」，用微信扫码。
-3. **发出第一条消息** — 在「智能路由」中配置服务并启用自动选择，然后从手机说出你想做的事；也可直接在菜单栏浮窗中聊天。
-
-不启用智能路由时，可以在应用里选择目标，或通过文本菜单与手动命令切换。
+3. **发出第一条消息** — 从微信说出你想做的事，也可直接在菜单栏浮窗中聊天。普通消息继续当前任务；回复“任务”切换，回复“新任务”开始新的。
 
 ## 与你常用的 Agent 一起工作
 
@@ -79,7 +113,7 @@ open "dist/Chat Bridge.app"
 - 需要 **macOS 13.5+**，并保持 Mac 开机、联网和 Chat Bridge 运行。
 - 桌面输入框输入 **@文件名** 即可搜索并从候选列表添加文件，左侧回形针也可进入搜索（每条最多 10 个，每个不超过 50 MiB），回复会引用原始消息。微信仍仅支持**文字输入**，收到的语音、图片和附件不会作为任务执行；符合要求的成果文件可发送回原通道。
 - 连接后，消息可以触发文件修改、命令和网络访问。Bridge 创建或恢复的 Codex／Claude Code 会话默认允许完整执行权限，请只绑定自己的可信账号。
-- 会话状态保存在 Mac 本地；消息仍经所选通道与 Agent 服务处理。开启智能路由后，消息和相关目标信息会交给你配置的路由服务判断。
+- 会话状态保存在 Mac 本地；消息经微信和所选 Agent 服务处理，不经过额外的路由服务。
 - 遇到发送结果不确定的情况，不会自动重复执行或重发。应用界面目前以中文为主。
 
 ## 更多
