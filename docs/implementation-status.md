@@ -2,6 +2,14 @@
 
 日期：2026-09-20。版本：0.6.0 开发预览。
 
+## 2026-11-17 Agent 接入面调整
+
+- **Codex 是唯一双面 Agent**：支持桌面端（ChatGPT.app 内置运行时，bundle id 仍为 `com.openai.codex`）与 CLI。两端共享 `~/.codex` 会话库和 app-server 协议；桥接优先使用桌面随包运行时，失败后回退到 CLI 候选。桌面端会话仍通过 `thread/list` / `thread/resume` / `turn/start` 读写，不做 UI 自动化。
+- **Claude、Pi、Hermes 仅支持 CLI**：Claude 不读取桌面端私有 session metadata，也不控制 Claude.app 的 Code tab；只把桌面内置 Claude Code engine 作为 CLI fallback。桌面端口径保持“需要安装 Claude Code CLI”。
+- probe 新增 `surfaces`：Codex 卡片显示“桌面端 + CLI”“仅 桌面端”或“仅 CLI”；其他 Agent 仅显示 CLI。
+
+实现与验证：`bridge` 227 项测试、macOS 69 项测试（3 项跳过）通过；本机 Codex 桌面端真实探测返回 `0.167.0-alpha.4.1`、`ready`，会话列表可读取桌面端创建的 thread。
+
 ## 2026-11-16 微信单通道 Super Agent
 
 当前实现已收缩为微信单通道：新增 WorkItem（任务）与任务焦点，Agent 入口为 Codex、Claude、Pi、Hermes，Pi 通过本机 RPC 接入，普通消息继续当前任务；自然语言支持“任务/进度”“新任务”“继续 X”“停一下”“同意/拒绝”，编号菜单用于切换任务。iMessage 适配器和 JEV 路由已移除，桌面端保留。

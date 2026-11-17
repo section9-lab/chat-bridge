@@ -129,10 +129,14 @@ export class ACPRuntime implements AgentAdapter {
       const ready = await this.authenticated();
       return { installed: true, version: this.installation.version, ready, status: ready ? "ready" : "needs_login",
         executionError: ready ? this.executionError : undefined,
+        surfaces: [{ kind: "cli" as const, installed: true, executablePath: this.installation.executablePath,
+          version: this.installation.version, auth: ready ? "ready" as const : "needs_login" as const }],
         reason: ready ? agentNames[this.options.id] + " 已就绪，可直接使用。" : "请先在本机登录并配置 " + agentNames[this.options.id] + "，完成后会自动检测。" };
     } catch {
       return { installed: this.installation.installed, version: this.installation.version, ready: false,
         status: this.installation.executablePath ? "error" : "missing",
+        surfaces: [{ kind: "cli" as const, installed: !!this.installation.executablePath,
+          executablePath: this.installation.executablePath, version: this.installation.version, auth: "unknown" as const }],
         reason: this.installation.executablePath ? "连接检查失败，请检查 " + agentNames[this.options.id] + " 的版本、登录和模型配置；稍后会自动重试。" :
           "请先安装 " + agentNames[this.options.id] + " 命令行程序，安装后会自动检测。" };
     }

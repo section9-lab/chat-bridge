@@ -206,6 +206,8 @@ struct SettingsView: View {
         let probe = service.probes[agent.id]
         let reason = probe?.executionError ?? probe?.reason ?? "正在自动检测"
         let version = probe?.version.map { " · 版本 " + $0 } ?? ""
+        let state = agent.comingSoon ? "即将支持 · 仅展示" : probe?.statusLabel ?? "检测中"
+        let detail = probe?.surfaceShort.map { state + " · " + $0 } ?? state
         return HStack(spacing: 13) {
             Image(nsImage: agent.icon(dark: colorScheme == .dark))
                 .resizable().scaledToFit().frame(width: 27, height: 27)
@@ -216,7 +218,7 @@ struct SettingsView: View {
                     .textFieldStyle(.plain).font(.system(size: 14, weight: .medium))
                     .accessibilityLabel(agent.name + " 显示名称")
                     .onSubmit { saveName(agent) }
-                Text(agent.comingSoon ? "即将支持 · 仅展示" : probe?.statusLabel ?? "检测中")
+                Text(detail)
                     .font(.system(size: 11)).foregroundStyle(.secondary)
                     .help(reason + version)
             }

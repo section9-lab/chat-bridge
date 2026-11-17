@@ -197,3 +197,17 @@ test("Claude completed-block fallback keeps distinct blocks with the same API me
     assert.deepEqual(updates.filter((value) => value.completed), [{ id: "same-message", text: "第一段\n\n第二段", completed: true }]);
   } finally { f.close(); }
 });
+
+test("Claude explains that a desktop install does not replace the CLI", async () => {
+  const { ClaudeRuntime } = await import("../src/claude.js");
+  const runtime = new ClaudeRuntime({ workspace: tmpdir(),
+    locate: async () => ({ installed: false, desktopInstalled: true,
+      surfaces: [{ kind: "cli", installed: false, candidates: [] }] }) });
+  try {
+    const probe = await runtime.probe();
+    assert.equal(probe.status, "missing");
+    assert.match(probe.reason, /Claude 桌面端/);
+    assert.match(probe.reason, /CLI/);
+    assert.deepEqual(probe.surfaces?.map((surface) => surface.kind), ["cli"]);
+  } finally { runtime.close(); }
+});

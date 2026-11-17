@@ -94,7 +94,8 @@ struct MainView: View {
         let probe = service.probes[agent.id]
         let unavailable = agent.comingSoon || probe?.isAvailable != true
         let state = agent.comingSoon ? "即将支持" : probe?.statusLabel ?? "检测中"
-        let label = service.displayName(agent.id) + "，" + state + (unavailable ? "，暂不可用" : "，打开会话")
+        let detail = probe?.surfaceShort.map { state + " · " + $0 } ?? state
+        let label = service.displayName(agent.id) + "，" + detail + (unavailable ? "，暂不可用" : "，打开会话")
         let hint = probe?.executionError ?? probe?.reason ?? "正在自动检测"
         return Button {
             hasChosenAgent = true
@@ -105,8 +106,8 @@ struct MainView: View {
                     VStack(alignment: .leading, spacing: 5) {
                         Text(service.displayName(agent.id)).font(.system(size: 15, weight: .semibold))
                             .lineLimit(2).multilineTextAlignment(.leading)
-                        Text(agent.comingSoon ? "Coming soon" : probe?.statusLabel ?? "检测中")
-                            .font(.system(size: 11)).opacity(selected ? 0.8 : 0.6)
+                        Text(agent.comingSoon ? "Coming soon" : detail)
+                            .font(.system(size: 11)).opacity(selected ? 0.8 : 0.6).lineLimit(1)
                     }
                     Spacer(minLength: 0)
                     Image(nsImage: agent.icon(dark: colorScheme == .dark))

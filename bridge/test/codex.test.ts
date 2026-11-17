@@ -229,3 +229,45 @@ test("an immediate stop cannot race ahead of the adapter registering its active 
     await stopped; assert.equal((await turn).status,'interrupted');
   } finally { f.close(); }
 });
+
+test("Codex prefers the desktop runtime and falls back to the CLI when it fails", async () => {
+  const { CodexRuntime } = await import("../src/codex.js");
+  const { Readable } = await import("node:stream");
+  const directory = mkdtempSync(join(tmpdir(), "bridge-codex-fallback-"));
+  const input = new PassThrough(), output = new PassThrough();
+  const attempted: string[] = [];
+  let buffer = "";
+  output.on("data", (chunk) => {
+    buffer += chunk.toString();
+    let newline;
+    while ((newline = buffer.indexOf("\n")) >= 0) {
+      const message = JSON.parse(buffer.slice(0, newline)); buffer = buffer.slice(newline + 1);
+      if (!message.id) continue;
+      const result = message.method === "initialize" ? { userAgent: "codex_cli_rs/0.167.0" }
+        : message.method === "account/read" ? { requiresOpenaiAuth: false } : {};
+      input.write(JSON.stringify({ id: message.id, result }) + "\n");
+    }
+  });
+  const runtime = new CodexRuntime({ workspace: directory,
+    locate: async () => ({ installed: true, executablePath: "/desktop/codex",
+      candidates: ["/desktop/codex", "/cli/codex"], surfaces: [
+        { kind: "desktop", installed: true, executablePath: "/desktop/codex", candidates: ["/desktop/codex"] },
+        { kind: "cli", installed: true, executablePath: "/cli/codex", candidates: ["/cli/codex"] }
+      ] }),
+    connect: (path) => {
+      attempted.push(path);
+      if (path === "/desktop/codex") {
+        return { input: Readable.from([]), output: new PassThrough(), close() {} };
+      }
+      return { input, output, close() { input.end(); } };
+    } });
+  try {
+    const probe = await runtime.probe();
+    assert.deepEqual(attempted, ["/desktop/codex", "/cli/codex"]);
+    assert.equal(probe.ready, true);
+    assert.equal(probe.version, "0.167.0");
+    assert.equal(probe.surfaces?.find((surface) => surface.kind === "cli")?.executablePath, "/cli/codex");
+    assert.equal(probe.surfaces?.find((surface) => surface.kind === "cli")?.auth, "ready");
+    assert.match(probe.reason ?? "", /CLI/);
+  } finally { runtime.close(); input.destroy(); output.destroy(); rmSync(directory, { recursive: true, force: true }); }
+});

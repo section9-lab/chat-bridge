@@ -163,13 +163,18 @@ export class PiRuntime implements AgentAdapter {
     try {
       this.installation = await this.options.locate();
       if (!this.installation.executablePath) return { installed: false, ready: false, status: "missing",
+        surfaces: [{ kind: "cli" as const, installed: false, auth: "unknown" as const }],
         reason: "请先安装 Pi 命令行程序，安装后会自动检测。" };
       await exec(process.execPath, [this.installation.executablePath, "--version"], { timeout: 8000 });
       return { installed: true, version: this.installation.version, ready: true, status: "ready",
+        surfaces: [{ kind: "cli" as const, installed: true, executablePath: this.installation.executablePath,
+          version: this.installation.version, auth: "ready" as const }],
         reason: "Pi 已就绪，可直接使用本机模型和会话。" };
     } catch {
       return { installed: this.installation.installed, version: this.installation.version, ready: false,
         status: this.installation.executablePath ? "error" : "missing",
+        surfaces: [{ kind: "cli" as const, installed: !!this.installation.executablePath,
+          executablePath: this.installation.executablePath, version: this.installation.version, auth: "unknown" as const }],
         reason: this.installation.executablePath ? "Pi 连接检查失败，请检查本机安装、登录和模型配置。" : "请先安装 Pi 命令行程序，安装后会自动检测。" };
     }
   }

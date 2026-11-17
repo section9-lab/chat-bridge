@@ -5,12 +5,13 @@ import { homedir } from "node:os";
 import { createHash } from "node:crypto";
 import { promisify } from "node:util";
 import { setTimeout as delay } from "node:timers/promises";
-import { BridgeError, ResumeRejectedError, type AgentAdapter, type AgentProbe, type NativeMessage, type NativeProject, type NativeSession, type Target, type TurnHooks, type TurnResult } from "./core.js";
+import { BridgeError, ResumeRejectedError, type AgentAdapter, type AgentProbe, type AgentSurfaceProbe, type NativeMessage, type NativeProject, type NativeSession, type Target, type TurnHooks, type TurnResult } from "./core.js";
 import { CodexRPC, CodexRPCError, type CodexConnection } from "./codex-rpc.js";
 import { AssistantText } from "./assistant-text.js";
 import { appVersion } from "./version.js";
 
-type Installation = { installed: boolean; version?: string; executablePath?: string };
+type Installation = { installed: boolean; version?: string; executablePath?: string; candidates?: string[];
+  surfaces?: AgentSurfaceProbe[]; desktopInstalled?: boolean };
 type RuntimeOptions = {
   workspace: string;
   projectlessRoot?: string;
@@ -61,40 +62,112 @@ export class CodexRuntime implements AgentAdapter {
     if (this.initializing) return this.initializing;
     if (this.rpc && !this.rpc.closed) return;
     this.initializing = (async () => {
-      this.installation = await this.options.locate();
-      const path = this.installation.executablePath;
-      if (!path || !isAbsolute(path)) throw new BridgeError("AGENT_UNAVAILABLE", "未找到 Codex 应用内的官方运行时。");
+      const located = await this.options.locate();
+      this.installation = located;
+      const paths = this.installationPaths(located);
+      if (!paths.length) throw new BridgeError("AGENT_UNAVAILABLE", located.desktopInstalled
+        ? "未找到可用的 Codex 运行时；桌面端可能未包含内置 CLI。"
+        : "未找到 Codex 应用内的官方运行时。");
       if (this.closed) throw new BridgeError("AGENT_UNAVAILABLE", "本地服务已关闭。");
       mkdirSync(this.options.workspace, { recursive: true, mode: 0o700 });
-      const rpc = new CodexRPC((this.options.connect ?? connect)(path, this.options.workspace));
-      this.rpc = rpc;
-      rpc.onNotification = (method, params) => this.notification(method, params);
-      rpc.onRequest = (method, params) => this.serverRequest(method, params);
-      rpc.onClose = () => {
-        if (this.rpc !== rpc) return;
-        this.loaded.clear(); this.external.clear();
-        const active = this.active;
-        if (active) { clearTimeout(active.timer); active.started(); active.began(); active.reject(new BridgeError("SEND_UNCERTAIN", "Codex 连接中断，未重发任务。")); this.active = undefined; }
-        this.options.onAvailability?.();
-      };
-      try {
-        await rpc.call("initialize", { clientInfo: { name: "chat_bridge", title: "Chat Bridge", version: appVersion },
-          capabilities: { experimentalApi: true } });
-        rpc.notify("initialized");
-      } catch (error) { rpc.close(); throw error; }
+
+      let lastError: unknown;
+      for (const path of paths) {
+        if (this.closed) throw new BridgeError("AGENT_UNAVAILABLE", "本地服务已关闭。");
+        const rpc = new CodexRPC((this.options.connect ?? connect)(path, this.options.workspace));
+        rpc.onNotification = (method, params) => this.notification(method, params);
+        rpc.onRequest = (method, params) => this.serverRequest(method, params);
+        rpc.onClose = () => {
+          if (this.rpc !== rpc) return;
+          this.loaded.clear(); this.external.clear();
+          const active = this.active;
+          if (active) { clearTimeout(active.timer); active.started(); active.began(); active.reject(new BridgeError("SEND_UNCERTAIN", "Codex 连接中断，未重发任务。")); this.active = undefined; }
+          this.options.onAvailability?.();
+        };
+        try {
+          const initialized = await rpc.call("initialize", { clientInfo: { name: "chat_bridge", title: "Chat Bridge", version: appVersion },
+            capabilities: { experimentalApi: true } });
+          rpc.notify("initialized");
+          this.rpc = rpc;
+          this.installation = { ...located, installed: true, executablePath: path,
+            version: await this.runtimeVersion(path, initialized) ?? located.version };
+          return;
+        } catch (error) {
+          lastError = error;
+          rpc.close();
+        }
+      }
+      throw lastError instanceof Error ? lastError
+        : new BridgeError("AGENT_UNAVAILABLE", "Codex 运行时连接失败，将自动重新检测。");
     })();
     try { await this.initializing; } finally { this.initializing = undefined; }
   }
+
+  /** Desktop candidates first: the bundled runtime matches the app that wrote the session. */
+  private installationPaths(installation: Installation): string[] {
+    const ordered = [...(installation.surfaces ?? [])]
+      .sort((a, b) => (a.kind === "desktop" ? 0 : 1) - (b.kind === "desktop" ? 0 : 1));
+    const values = [
+      ...ordered.filter((surface) => surface.installed).map((surface) => surface.executablePath),
+      installation.executablePath,
+      ...(installation.candidates ?? [])
+    ];
+    return [...new Set(values.filter((path): path is string => typeof path === "string" && isAbsolute(path)))]
+      // Tests inject a fake connect() and paths; only the real runtime needs file checks.
+      .filter((path) => this.options.connect ? true : statSync(path, { throwIfNoEntry: false })?.isFile() === true);
+  }
+
+  private async runtimeVersion(path: string, initialized: any): Promise<string | undefined> {
+    const userAgent = typeof initialized?.userAgent === "string" ? initialized.userAgent : "";
+    const reported = /(\d+\.\d+\.\d+(?:-[\w.]+)?)/.exec(userAgent)?.[1];
+    if (reported) return reported;
+    try {
+      const result = await promisify(execFile)(path, ["--version"], { timeout: 5000, maxBuffer: 64 * 1024 });
+      return /(\d+\.\d+\.\d+(?:-[\w.]+)?)/.exec(String(result.stdout))?.[1];
+    } catch { return undefined; }
+  }
+
+  private probeSurfaces(auth: "ready" | "needs_login" | "unknown"): AgentSurfaceProbe[] {
+    const base: AgentSurfaceProbe[] = this.installation.surfaces?.length ? this.installation.surfaces : [{
+      kind: "cli", installed: this.installation.installed,
+      executablePath: this.installation.executablePath, candidates: this.installation.candidates
+    }];
+    let attributed = false;
+    return base.map((surface) => {
+      const chosen = !attributed && !!this.installation.executablePath &&
+        (surface.executablePath === this.installation.executablePath || surface.candidates?.includes(this.installation.executablePath));
+      if (chosen) attributed = true;
+      return { ...surface, ...(chosen ? { executablePath: this.installation.executablePath,
+        version: this.installation.version ?? surface.version } : {}),
+        auth: surface.installed ? auth : "unknown" };
+    });
+  }
+
+  private readyReason(surfaces: AgentSurfaceProbe[]): string {
+    const desktop = surfaces.some((surface) => surface.kind === "desktop" && surface.installed);
+    const cli = surfaces.some((surface) => surface.kind === "cli" && surface.installed);
+    const route = desktop && cli ? "桌面端与 CLI 会话共享" : desktop ? "使用桌面端内置运行时" : "使用 CLI 运行时";
+    return "本机 Codex 已就绪（" + route + "），可选择已有项目与会话。";
+  }
+
   async probe(): Promise<AgentProbe> {
     try {
       await this.initialize();
       const account = await this.rpc!.call("account/read", { refreshToken: false });
       const ready = account?.account != null || account?.requiresOpenaiAuth === false;
-      return { installed: this.installation.installed, version: this.installation.version, ready, status: ready ? "ready" : "needs_login",
-        reason: ready ? "本机 Codex 已就绪，可选择已有项目与会话。" : "请先在本机 Codex 登录账号，完成后会自动检测。" };
-    } catch { return { installed: this.installation.installed, version: this.installation.version, ready: false,
-      status: this.installation.executablePath ? "error" : "missing",
-      reason: this.installation.executablePath ? "Codex 运行时连接异常，将自动重新检测。" : "请先安装 Codex，安装后会自动检测。" }; }
+      const surfaces = this.probeSurfaces(ready ? "ready" : "needs_login");
+      return { installed: this.installation.installed, version: this.installation.version, ready,
+        status: ready ? "ready" : "needs_login", surfaces, desktopInstalled: this.installation.desktopInstalled,
+        reason: ready ? this.readyReason(surfaces) : "请先在本机 Codex 登录账号，完成后会自动检测。" };
+    } catch {
+      const surfaces = this.probeSurfaces("unknown");
+      const installed = this.installation.installed || surfaces.some((surface) => surface.installed);
+      return { installed, version: this.installation.version, ready: false,
+        status: installed ? "error" : "missing", surfaces, desktopInstalled: this.installation.desktopInstalled,
+        reason: installed ? "Codex 运行时连接异常，将自动重新检测。"
+          : this.installation.desktopInstalled ? "已检测到 Codex 桌面端，但未找到可用的内置运行时。请更新或重装 Codex 后重试。"
+            : "请先安装 Codex，安装后会自动检测。" };
+    }
   }
   private async pages(method: string, params: Record<string, unknown>): Promise<any[]> {
     await this.initialize();
@@ -117,7 +190,7 @@ export class CodexRuntime implements AgentAdapter {
     return this.projects;
   }
   async listSessions(): Promise<NativeSession[]> {
-    const rows = await this.pages("thread/list", { sortKey: "updated_at", sourceKinds: ["appServer", "cli", "vscode"], useStateDbOnly: true });
+    const rows = await this.pages("thread/list", { sortKey: "updated_at", sourceKinds: ["appServer", "cli", "vscode", "exec"], useStateDbOnly: true });
     const state = this.desktopState();
     return rows.filter((thread) => typeof thread.id === "string" && typeof thread.cwd === "string" && isAbsolute(thread.cwd))
       .map((thread) => {

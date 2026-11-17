@@ -11,6 +11,14 @@ final class AgentSelectionTests: XCTestCase {
         XCTAssertTrue(probe.ready)
         XCTAssertEqual(probe.statusLabel, "执行异常")
     }
+    func testCodexSurfaceSummaryDistinguishesDesktopAndCLI() throws {
+        let both = try JSONDecoder().decode(AgentProbe.self, from: Data(#"{"installed":true,"ready":true,"status":"ready","reason":"ok","surfaces":[{"kind":"desktop","installed":true},{"kind":"cli","installed":false}]}"#.utf8))
+        XCTAssertEqual(both.surfaces?.map(\.name), ["桌面端", "CLI"])
+        XCTAssertEqual(both.surfaceShort, "仅桌面端")
+
+        let cliOnly = try JSONDecoder().decode(AgentProbe.self, from: Data(#"{"installed":true,"ready":true,"status":"ready","reason":"ok","surfaces":[{"kind":"desktop","installed":true},{"kind":"cli","installed":true}]}"#.utf8))
+        XCTAssertEqual(cliOnly.surfaceShort, "桌面端 + CLI")
+    }
     @MainActor
     func testServiceSnapshotsAutomaticallyEnableAndDisableTheComposer() {
         let service = BridgeService()

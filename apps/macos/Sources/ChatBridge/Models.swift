@@ -262,6 +262,18 @@ struct BridgeState: Decodable {
     var probes: [String: AgentProbe]?
     var connectors: ConnectorStateSummary?
 }
+struct AgentSurface: Decodable, Identifiable {
+    var kind: String
+    var installed: Bool?
+    var version: String?
+    var executablePath: String?
+    var candidates: [String]?
+    var auth: String?
+    var reason: String?
+    var id: String { kind }
+    var name: String { kind == "desktop" ? "桌面端" : "CLI" }
+    var isInstalled: Bool { installed == true }
+}
 struct AgentProbe: Decodable {
     var installed = false
     var version: String?
@@ -269,7 +281,19 @@ struct AgentProbe: Decodable {
     var reason = "桌面会话接入尚未验证"
     var status: String?
     var executionError: String?
+    var desktopInstalled: Bool?
+    var surfaces: [AgentSurface]?
     var isAvailable: Bool { ready && executionError == nil }
+    /// Short, non-technical wording for the agent card: "桌面端 + CLI" / "仅 CLI".
+    var surfaceShort: String? {
+        guard let surfaces, !surfaces.isEmpty else { return nil }
+        let installed = surfaces.filter(\.isInstalled)
+        guard !installed.isEmpty else { return nil }
+        if surfaces.count == 1 { return surfaces[0].name == "CLI" ? "仅 CLI" : "仅" + surfaces[0].name }
+        if installed.count == surfaces.count { return surfaces.map(\.name).joined(separator: " + ") }
+        let only = installed.map(\.name).joined(separator: " + ")
+        return only.contains("CLI") ? "仅 " + only : "仅" + only
+    }
     var statusLabel: String {
         if ready && executionError != nil { return "执行异常" }
         if ready { return "可用" }
@@ -284,12 +308,64 @@ struct AgentProbe: Decodable {
 
 enum NativeAgentHost {
     // Installation metadata is not proof that this process can control a desktop session.
+    // Codex is the only agent with two supported surfaces: the desktop app and the CLI share
+    // one session store and one app-server protocol. The others are CLI-only.
     static func probe(_ agent: Agent) -> [String: Any] {
         let bundle = agent.applicationURL.flatMap(Bundle.init(url:))
+        let appVersion = bundle?.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
+        let desktopInstalled = bundle != nil
+        var surfaces: [[String: Any]] = []
+        var primaryPath: String?
+
+        if agent.id == "codex" {
+            var desktop: [String] = []
+            if let bundle {
+                let root = bundle.bundleURL
+                desktop = [
+                    root.appendingPathComponent("Contents/Resources/codex-cli/bin/codex").path,
+                    root.appendingPathComponent("Contents/Resources/codex").path,
+                    root.appendingPathComponent("Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex").path
+                ]
+            }
+            let desktopPath = firstExecutable(desktop)
+            let cli = executableCandidates(named: "codex")
+            let cliPath = firstExecutable(cli)
+            surfaces = [
+                surface("desktop", installed: desktopPath != nil, version: appVersion,
+                        executablePath: desktopPath, candidates: desktop),
+                surface("cli", installed: cliPath != nil, executablePath: cliPath, candidates: cli)
+            ]
+            primaryPath = desktopPath ?? cliPath
+        } else {
+            var candidates = executableCandidates(named: agent.id == "cursor" ? "cursor-agent" : agent.id)
+            if agent.id == "grok" { candidates.insert(NSHomeDirectory() + "/.grok/bin/grok", at: 0) }
+            if agent.id == "opencode" { candidates.insert(NSHomeDirectory() + "/.opencode/bin/opencode", at: 0) }
+            if agent.id == "hermes" { candidates.append(NSHomeDirectory() + "/.hermes/hermes-agent/venv/bin/hermes") }
+            // Desktop installs a private Claude Code engine. Treat it as a CLI fallback, not as
+            // proof that desktop sessions can be controlled.
+            if agent.id == "claude" { candidates.append(contentsOf: claudeBundledEngines()) }
+            let path = firstExecutable(candidates)
+            primaryPath = path
+            surfaces = [surface("cli", installed: path != nil, executablePath: path, candidates: candidates)]
+        }
+
+        let installed = surfaces.contains { $0["installed"] as? Bool == true }
+        let reason: String
+        if installed {
+            reason = "已检测到运行时，正在检查登录状态。"
+        } else if agent.id == "codex" && desktopInstalled {
+            reason = "已检测到 Codex 桌面端，但未找到可用的内置运行时。请更新或重装 Codex 后重试。"
+        } else if agent.id == "claude" && desktopInstalled {
+            reason = "已检测到 Claude 桌面端，但缺少 Claude Code CLI。请安装命令行程序，安装后会自动检测。"
+        } else if agent.id == "claude" {
+            reason = "请先安装 Claude Code 命令行程序，安装后会自动检测。"
+        } else {
+            reason = "请先安装 " + (agent.id == "hermes" ? "Hermes Agent" : agent.name) + "，安装后会自动检测。"
+        }
+
         var result: [String: Any] = [
-            "installed": bundle != nil, "ready": false,
-            "version": bundle?.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "",
-            "reason": bundle == nil ? "未检测到桌面应用" : "桌面会话接入尚未验证",
+            "installed": installed, "ready": false, "version": appVersion,
+            "reason": reason, "desktopInstalled": desktopInstalled, "surfaces": surfaces,
             "capabilities": [
                 "canListProjects": false, "canListSessions": false, "canCreateProjectless": false,
                 "canResumeExactSession": false, "canReadHistory": false, "canSend": false,
@@ -297,17 +373,40 @@ enum NativeAgentHost {
                 "worksWhileLocked": false
             ]
         ]
-        let name = agent.id == "cursor" ? "cursor-agent" : agent.id
-        var candidates = [NSHomeDirectory() + "/.local/bin/" + name, "/opt/homebrew/bin/" + name, "/usr/local/bin/" + name]
-        if agent.id == "codex", let url = bundle?.bundleURL.appendingPathComponent("Contents/Resources/codex") {
-            candidates.insert(url.path, at: 0)
-        }
-        if agent.id == "grok" { candidates.insert(NSHomeDirectory() + "/.grok/bin/grok", at: 0) }
-        if agent.id == "opencode" { candidates.insert(NSHomeDirectory() + "/.opencode/bin/opencode", at: 0) }
-        if agent.id == "hermes" { candidates.append(NSHomeDirectory() + "/.hermes/hermes-agent/venv/bin/hermes") }
-        let path = candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
-        result["installed"] = path != nil
-        if let path { result["executablePath"] = path }
+        if let primaryPath { result["executablePath"] = primaryPath }
         return result
+    }
+
+    private static func surface(_ kind: String, installed: Bool, version: String? = nil,
+                                executablePath: String?, candidates: [String]) -> [String: Any] {
+        var value: [String: Any] = ["kind": kind, "installed": installed, "candidates": candidates]
+        if let version, !version.isEmpty { value["version"] = version }
+        if let executablePath { value["executablePath"] = executablePath }
+        return value
+    }
+
+    private static func executableCandidates(named name: String) -> [String] {
+        var directories = [
+            NSHomeDirectory() + "/.local/bin", NSHomeDirectory() + "/.npm-global/bin",
+            NSHomeDirectory() + "/.bun/bin", NSHomeDirectory() + "/.volta/bin",
+            NSHomeDirectory() + "/bin", "/opt/homebrew/bin", "/usr/local/bin"
+        ]
+        if let path = ProcessInfo.processInfo.environment["PATH"] {
+            directories.append(contentsOf: path.split(separator: ":").map(String.init))
+        }
+        var seen = Set<String>()
+        return directories.filter { seen.insert($0).inserted }.map { $0 + "/" + name }
+    }
+
+    private static func claudeBundledEngines() -> [String] {
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        guard let root = support?.appendingPathComponent("Claude/claude-code") else { return [] }
+        let versions = (try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? []
+        return versions.sorted { $0.compare($1, options: .numeric) == .orderedDescending }
+            .map { root.appendingPathComponent($0).appendingPathComponent("claude.app/Contents/MacOS/claude").path }
+    }
+
+    private static func firstExecutable(_ candidates: [String]) -> String? {
+        candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
     }
 }

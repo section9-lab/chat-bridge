@@ -13,8 +13,18 @@ export const agentIDs = ["codex", "claude", "pi", "hermes"] as const;
 export const agentNames: Record<string, string> = { codex: "Codex", claude: "Claude Code", pi: "Pi", hermes: "Hermes Agent" };
 // Plain Unicode, so phone channels without rich rendering (iMessage) still show who is answering.
 export const agentEmoji: Record<string, string> = { codex: "🤖", claude: "✳️", pi: "π", hermes: "🕊️" };
+export type AgentSurfaceProbe = {
+  kind: "desktop" | "cli";
+  installed: boolean;
+  version?: string;
+  executablePath?: string;
+  candidates?: string[];
+  auth?: "ready" | "needs_login" | "unknown";
+  reason?: string;
+};
 export type AgentProbe = { ready: boolean; reason: string; installed?: boolean; version?: string; executionError?: string;
-  status?: "checking" | "missing" | "needs_login" | "ready" | "error" };
+  status?: "checking" | "missing" | "needs_login" | "ready" | "error";
+  surfaces?: AgentSurfaceProbe[]; desktopInstalled?: boolean };
 export type Target = {
   agent: string; mode: string; projectId: string | null;
   sessionId?: string | null; creationKey?: string | null; version?: number; sessionTitle?: string;

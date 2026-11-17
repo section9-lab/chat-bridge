@@ -4,11 +4,12 @@ import { mkdirSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute } from "node:path";
 import { randomUUID } from "node:crypto";
 import * as sdk from "@anthropic-ai/claude-agent-sdk";
-import { BridgeError, type AgentAdapter, type AgentProbe, type NativeMessage, type NativeProject, type NativeSession, type Target, type TurnHooks, type TurnResult } from "./core.js";
+import { BridgeError, type AgentAdapter, type AgentProbe, type AgentSurfaceProbe, type NativeMessage, type NativeProject, type NativeSession, type Target, type TurnHooks, type TurnResult } from "./core.js";
 import { AssistantText } from "./assistant-text.js";
 import { appVersion } from "./version.js";
 
-type Installation = { installed: boolean; executablePath?: string; version?: string };
+type Installation = { installed: boolean; executablePath?: string; version?: string; candidates?: string[];
+  surfaces?: AgentSurfaceProbe[]; desktopInstalled?: boolean };
 type RuntimeOptions = {
   workspace: string;
   projectlessRoot?: string;
@@ -33,21 +34,37 @@ export class ClaudeRuntime implements AgentAdapter {
   async probe(): Promise<AgentProbe> {
     const installation = await this.options.locate();
     const path = installation.executablePath;
+    const usable = !!path && isAbsolute(path) && !this.closed;
     let ready = false;
-    let status: AgentProbe["status"] = "missing";
-    if (path && isAbsolute(path) && !this.closed) {
+    let status: AgentProbe["status"] = usable ? "needs_login" : "missing";
+    if (usable) {
       try {
-        if (this.options.authenticate) ready = await this.options.authenticate(path);
+        if (this.options.authenticate) ready = await this.options.authenticate(path!);
         else {
-          const result = await promisify(execFile)(path, ["auth", "status"], { env: this.environment(path), timeout: 8000, maxBuffer: 64 * 1024 })
+          const result = await promisify(execFile)(path!, ["auth", "status"], { env: this.environment(path!), timeout: 8000, maxBuffer: 64 * 1024 })
             .catch((error) => { if (error.code === 1 && error.stdout) return { stdout: error.stdout }; throw error; });
           ready = JSON.parse(result.stdout).loggedIn === true;
         }
         status = ready ? "ready" : "needs_login";
       } catch { status = "error"; /* Do not expose account or credential details. */ }
     }
-    return { installed: installation.installed, version: installation.version, ready, status,
-      reason: ready ? "Claude Code 已就绪，可选择已有项目与会话。" : status === "missing" ? "请先安装 Claude Code 命令行程序，安装后会自动检测。" :
+    // Claude remains a CLI-only runtime. The desktop app may share the engine, but its session
+    // list is separate and has no supported local control API.
+    const bundled = path?.includes("/Application Support/Claude/claude-code/") ?? false;
+    const base: AgentSurfaceProbe[] = installation.surfaces?.length ? installation.surfaces : [{
+      kind: "cli", installed: usable, executablePath: path, version: installation.version
+    }];
+    const surfaces: AgentSurfaceProbe[] = base.map((surface) => surface.kind === "cli" ? {
+      ...surface, installed: usable, ...(path ? { executablePath: path } : {}),
+      auth: ready ? "ready" : status === "needs_login" ? "needs_login" : "unknown"
+    } : surface);
+    return { installed: usable, version: installation.version, ready, status, surfaces,
+      desktopInstalled: installation.desktopInstalled,
+      reason: ready ? bundled ? "Claude Code 已就绪（使用 Claude 桌面端内置 CLI），可选择已有项目与会话。"
+          : "Claude Code 已就绪，可选择已有项目与会话。" :
+        status === "missing" ? installation.desktopInstalled
+          ? "已检测到 Claude 桌面端，但缺少 Claude Code CLI。请安装命令行程序，安装后会自动检测。"
+          : "请先安装 Claude Code 命令行程序，安装后会自动检测。" :
         status === "needs_login" ? "请先登录 Claude Code，完成后会自动检测。" : "Claude Code 连接检查失败，将自动重新检测。" };
   }
   // Claude Code has no separate projectless location: a conversation outside any project simply
