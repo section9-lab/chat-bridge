@@ -124,6 +124,36 @@ export class BridgeCore {
       this.put("selection", this.fresh("codex"));
     }
     this.db.transaction(() => {
+      const knownAgents = new Set<string>(agentIDs);
+      const storedPreferences = this.get<Preferences>("preferences");
+      if (storedPreferences) {
+        const storedEnabled = Array.isArray(storedPreferences.enabledAgents) ? storedPreferences.enabledAgents : [...agentIDs];
+        const hadRemovedAgent = storedEnabled.some((id) => !knownAgents.has(id));
+        const enabledAgents = hadRemovedAgent ? [...agentIDs] : [...new Set(storedEnabled.filter((id) => knownAgents.has(id)))];
+        if (!enabledAgents.length) enabledAgents.push(...agentIDs);
+        const defaultAgent = knownAgents.has(storedPreferences.defaultAgent) ? storedPreferences.defaultAgent : enabledAgents[0]!;
+        const pinned = storedPreferences.pinned.filter((id) => knownAgents.has(id));
+        if (hadRemovedAgent) for (const id of ["codex", "claude", "pi"]) if (pinned.length < 3 && !pinned.includes(id)) pinned.push(id);
+        if (JSON.stringify(enabledAgents) !== JSON.stringify(storedPreferences.enabledAgents) ||
+            defaultAgent !== storedPreferences.defaultAgent || JSON.stringify(pinned) !== JSON.stringify(storedPreferences.pinned)) {
+          this.put("preferences", { ...storedPreferences, enabledAgents, defaultAgent, pinned });
+        }
+      }
+      const storedSelection = this.get<Selection>("selection");
+      if (storedSelection && !knownAgents.has(storedSelection.agent)) {
+        this.put("selection", this.fresh(storedPreferences?.defaultAgent && knownAgents.has(storedPreferences.defaultAgent)
+          ? storedPreferences.defaultAgent : agentIDs[0]!));
+      }
+      for (const job of this.list<Job>("job")) {
+        if (!knownAgents.has(job.target.agent) && !["completed", "cancelled", "failed", "interrupted"].includes(job.status)) {
+          this.record("job", job.id, { ...job, status: "cancelled", error: "此任务使用的 Agent 已移除，任务未发送。" });
+        }
+      }
+      for (const item of this.list<WorkItem>("work-item")) {
+        if (!knownAgents.has(item.target.agent) && item.status !== "cancelled") {
+          this.record("work-item", item.id, { ...item, status: "cancelled", closedAt: new Date().toISOString() });
+        }
+      }
       for (const job of this.list<Job>("job")) {
         if (job.status === "preparing") {
           job.status = "accepted";
@@ -904,7 +934,10 @@ export class BridgeCore {
       if (blocked) return blocked;
       this.navigationVersion++;
       this.clearMenu(origin);
-      if (argument !== selected.agent) this.select(this.get<Target>("active:" + argument + ":code") ?? this.fresh(argument));
+      if (argument !== selected.agent) {
+        this.setFocus(null);
+        this.select(this.get<Target>("active:" + argument + ":code") ?? this.fresh(argument));
+      }
       return "当前 Agent：" + argument;
     }
     if (name === "new" || (name === "project" && argument === "none")) {
@@ -963,6 +996,7 @@ export class BridgeCore {
     this.executable(agent);
     const navigation = ++this.navigationVersion;
     const selected = this.selection();
+    if (selected.agent !== agent) this.setFocus(null);
     if (selected.agent === agent && selected.sessionId) {
       // Reopening the visible conversation is a refresh, not a new routing intent.
       if (this.adapters[agent]?.listSessions) await this.refreshCatalog(agent);
@@ -1077,6 +1111,11 @@ export class BridgeCore {
     if (this.closed) return;
     const job = this.find<Job>("job", jobId);
     if (!job || job.status !== "accepted") return;
+    const adapter = this.adapters[job.target.agent];
+    if (!adapter) {
+      job.status = "cancelled"; job.error = "目标 Agent 已不可用，任务未发送。";
+      this.saveWaitingJob(job); this.syncWorkItem(job); this.changed(); return;
+    }
     const blocked = this.blockedAgent(job.origin, job.target.agent);
     if (blocked) {
       job.status = "cancelled"; job.error = blocked + "任务未发送。";
