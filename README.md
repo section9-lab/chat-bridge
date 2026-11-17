@@ -63,6 +63,28 @@ flowchart LR
 
 Messages stay on your Mac and are handed to the native agent session that owns the current task. Switching tasks changes the WorkItem focus, not the session already running. See [the full design](docs/wechat-only-super-agent-plan.md) for the complete state model.
 
+## Core model
+
+```mermaid
+flowchart LR
+    M1["Message I1<br/>fix the login bug"] --> C["Conversation<br/>WeChat chat / Thread"]
+    M2["Message I2<br/>add tests"] --> C
+    M3["Message I3<br/>write a leave email"] --> C
+
+    C --> K1["WorkItem K1<br/>fix the login bug"]
+    C --> K2["WorkItem K2<br/>write a leave email"]
+
+    M1 -.-> K1
+    M2 -.-> K1
+    M3 -.-> K2
+
+    K1 --> J1["Job J1"] --> S1["Native Session S1<br/>Pi / Claude / Codex"]
+    K1 --> J2["Job J2"] --> S1
+    K2 --> J3["Job J3"] --> S2["Native Session S2"]
+```
+
+A conversation holds messages. A WorkItem groups the messages that belong to one task. Each Job is one execution turn inside that WorkItem's native session.
+
 ## Task flow
 
 ```mermaid

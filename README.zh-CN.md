@@ -63,6 +63,28 @@ flowchart LR
 
 消息保存在你的 Mac 上，交给当前任务对应的原生 Agent 会话。切换任务只改变 WorkItem 焦点，不会改变正在运行的会话。完整状态模型见 [微信单通道 Super Agent 方案](docs/wechat-only-super-agent-plan.md)。
 
+## 核心模型
+
+```mermaid
+flowchart LR
+    M1["消息 I1<br/>修登录 bug"] --> C["Conversation<br/>微信会话 / Thread"]
+    M2["消息 I2<br/>加测试"] --> C
+    M3["消息 I3<br/>写请假邮件"] --> C
+
+    C --> K1["WorkItem K1<br/>修登录 bug"]
+    C --> K2["WorkItem K2<br/>写请假邮件"]
+
+    M1 -.-> K1
+    M2 -.-> K1
+    M3 -.-> K2
+
+    K1 --> J1["Job J1"] --> S1["原生 Session S1<br/>Pi / Claude / Codex"]
+    K1 --> J2["Job J2"] --> S1
+    K2 --> J3["Job J3"] --> S2["原生 Session S2"]
+```
+
+一个 Conversation 承载消息；一个 WorkItem 聚集属于同一任务的消息；每个 Job 是 WorkItem 在原生会话里的一次执行轮次。
+
 ## 任务流程
 
 ```mermaid
