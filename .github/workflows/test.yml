@@ -1,6 +1,6 @@
 name: Test macOS
 
-# The app supports macOS 13.5 and later; hosted runners cover macOS 14, 15 and 26.
+# The app supports macOS 13.5 and later; hosted runners cover macOS 15 and 26.
 on:
   push:
     branches: ['**']
@@ -25,8 +25,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-14
-            xcode: Xcode_16.2
           - runner: macos-15
             xcode: Xcode_16.4
           - runner: macos-26
