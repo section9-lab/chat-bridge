@@ -61,7 +61,32 @@ flowchart LR
     UI --- Scheduler
 ```
 
-Messages stay on your Mac and are handed to the native agent session that owns the current task. Switching tasks changes the WorkItem focus, not the session already running. See [the full design](docs/wechat-only-super-agent-plan.md) for the Mermaid task flow and state model.
+Messages stay on your Mac and are handed to the native agent session that owns the current task. Switching tasks changes the WorkItem focus, not the session already running. See [the full design](docs/wechat-only-super-agent-plan.md) for the complete state model.
+
+## Task flow
+
+```mermaid
+flowchart TD
+    A["Message arrives in WeChat"] --> B{"Reply to an active menu?"}
+    B -->|"yes"| C["Select the numbered option"]
+    B -->|"no"| D{"What is the intent?"}
+    D -->|"tasks / progress"| E["Show the numbered task list"]
+    D -->|"new task"| F["Clear the current task focus"]
+    D -->|"continue X"| G{"Unique task match?"}
+    G -->|"yes"| H["Switch the task focus"]
+    G -->|"no"| E
+    D -->|"ordinary message"| I{"Is a WorkItem in focus?"}
+    I -->|"yes"| J["Append a Job to that WorkItem"]
+    I -->|"no"| K["Create a WorkItem"]
+    J --> L["Scheduler"]
+    K --> L
+    L --> M["Run the native agent session"]
+    M --> N["Reply to the originating WeChat chat"]
+    N --> O["Update the WorkItem status"]
+    E --> P["User replies with a number"]
+    P --> H
+    F --> Q["The next message creates a new WorkItem"]
+```
 
 ## Try saying
 

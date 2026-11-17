@@ -61,7 +61,32 @@ flowchart LR
     UI --- Scheduler
 ```
 
-消息保存在你的 Mac 上，交给当前任务对应的原生 Agent 会话。切换任务只改变 WorkItem 焦点，不会改变正在运行的会话。完整设计与 Mermaid 流程图见 [微信单通道 Super Agent 方案](docs/wechat-only-super-agent-plan.md)。
+消息保存在你的 Mac 上，交给当前任务对应的原生 Agent 会话。切换任务只改变 WorkItem 焦点，不会改变正在运行的会话。完整状态模型见 [微信单通道 Super Agent 方案](docs/wechat-only-super-agent-plan.md)。
+
+## 任务流程
+
+```mermaid
+flowchart TD
+    A["微信收到消息"] --> B{"回复的是当前菜单编号？"}
+    B -->|"是"| C["选择编号对应的菜单项"]
+    B -->|"否"| D{"这条消息的意图是什么？"}
+    D -->|"任务 / 进度"| E["显示编号任务列表"]
+    D -->|"新任务"| F["清除当前任务焦点"]
+    D -->|"继续 X"| G{"能唯一匹配任务？"}
+    G -->|"是"| H["切换当前任务焦点"]
+    G -->|"否"| E
+    D -->|"普通消息"| I{"当前有任务焦点？"}
+    I -->|"有"| J["给这个 WorkItem 追加 Job"]
+    I -->|"没有"| K["创建新的 WorkItem"]
+    J --> L["Scheduler 调度"]
+    K --> L
+    L --> M["运行原生 Agent 会话"]
+    M --> N["回复到原微信会话"]
+    N --> O["更新 WorkItem 状态"]
+    E --> P["用户回复编号"]
+    P --> H
+    F --> Q["下一条消息创建新 WorkItem"]
+```
 
 ## 你可以这样说
 
