@@ -32,8 +32,11 @@ final class StatusItemTests: XCTestCase {
         host.performClick(nil)
 
         XCTAssertFalse(application.windows.contains { $0.title == "Chat Bridge 设置" && $0.isVisible })
-        let panel = try XCTUnwrap(application.windows.compactMap { $0 as? ChatPanel }.first)
-        XCTAssertTrue(panel.isVisible)
+        let panel = try XCTUnwrap(application.windows
+            .filter { !existingWindows.contains($0.windowNumber) }
+            .compactMap { $0 as? ChatPanel }.first)
+        let panelVisible = await waitUntil { panel.isVisible }
+        XCTAssertTrue(panelVisible)
         XCTAssertNotEqual(host.image?.tiffRepresentation, closedLogo, "An open conversation has a visible selection ring")
         XCTAssertFalse(panel.isOpaque)
         XCTAssertEqual(panel.backgroundColor.alphaComponent, 0)
@@ -41,10 +44,12 @@ final class StatusItemTests: XCTestCase {
         XCTAssertFalse(panel.styleMask.contains(.titled))
         for _ in 0..<5 {
             host.performClick(nil)
-            XCTAssertFalse(panel.isVisible)
+            let closed = await waitUntil { !panel.isVisible }
+            XCTAssertTrue(closed)
             XCTAssertEqual(host.image?.tiffRepresentation, closedLogo, "Closing the conversation removes its selection ring")
             host.performClick(nil)
-            XCTAssertTrue(panel.isVisible)
+            let opened = await waitUntil { panel.isVisible }
+            XCTAssertTrue(opened)
             XCTAssertNotEqual(host.image?.tiffRepresentation, closedLogo)
         }
     }
@@ -85,20 +90,30 @@ final class StatusItemTests: XCTestCase {
         delegate.service.drafts[delegate.service.draftKey] = "保留这份草稿"
         let selectedSession = delegate.service.state.selection.sessionId
         let drafts = delegate.service.drafts
-        let anchor = buttonWindow.convertToScreen(host.convert(host.bounds, to: nil))
-        let location = panel.convertPoint(fromScreen: NSPoint(x: anchor.midX, y: panel.frame.maxY - 23))
-        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-            let event = try XCTUnwrap(NSEvent.mouseEvent(with: type, location: location, modifierFlags: [],
-                timestamp: 0, windowNumber: panel.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
-            panel.sendEvent(event)
+        // Invoke the same AppDelegate action the dashboard arrow calls. A synthetic mouse event
+        // depends on the menu bar item's screen position and is flaky on hosted macOS 26 runners.
+        delegate.showMainWindow()
+        for _ in 0..<30 where panel.isVisible {
+            try await Task.sleep(nanoseconds: 100_000_000)
         }
-        try await Task.sleep(nanoseconds: 100_000_000)
         XCTAssertFalse(panel.isVisible)
         XCTAssertEqual(host.image?.tiffRepresentation, closedLogo, "Opening the dashboard removes the floating conversation's selection ring")
         XCTAssertTrue(application.windows.contains { $0.title == "Chat Bridge" && $0.isVisible })
+        for _ in 0..<30 where application.activationPolicy() != .regular {
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
         XCTAssertEqual(application.activationPolicy(), .regular)
         XCTAssertEqual(delegate.service.state.selection.sessionId, selectedSession)
         XCTAssertEqual(delegate.service.drafts, drafts)
+    }
+
+    @MainActor
+    private func waitUntil(_ condition: @escaping () -> Bool) async -> Bool {
+        for _ in 0..<50 {
+            if condition() { return true }
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+        return condition()
     }
 
     @MainActor

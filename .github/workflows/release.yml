@@ -9,6 +9,9 @@ on:
       - 'README*'
       - 'LICENSE'
       - '.github/**'
+      - 'apps/macos/Tests/**'
+      - 'bridge/test/**'
+      - 'scripts/tests/**'
   workflow_dispatch:
 
 permissions:
