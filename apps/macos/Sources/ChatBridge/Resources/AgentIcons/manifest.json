@@ -34,54 +34,6 @@
       "sha256": "97b53fb85b3bf401ffeb8ee7c5ebad734ce9f6edc3038f242021c53bcc18e23d"
     },
     {
-      "agent": "cursor",
-      "theme": "light",
-      "source": "https://raw.githubusercontent.com/lobehub/lobe-icons/a94750e3f5f8fc33757b839d85030e742284e43a/packages/static-png/light/cursor.png",
-      "file": "cursor-light.png",
-      "bytes": 4422,
-      "sha256": "783ac5ded2079c86a2741af24f1d168ea1b7d12846feea4bac54d79ffb061062"
-    },
-    {
-      "agent": "cursor",
-      "theme": "dark",
-      "source": "https://raw.githubusercontent.com/lobehub/lobe-icons/a94750e3f5f8fc33757b839d85030e742284e43a/packages/static-png/dark/cursor.png",
-      "file": "cursor-dark.png",
-      "bytes": 4402,
-      "sha256": "1ac411d127a35bb2d287f39e3a4084ed1407884e52377a5cd9bda1a3ea7ef47b"
-    },
-    {
-      "agent": "grok",
-      "theme": "light",
-      "source": "https://raw.githubusercontent.com/lobehub/lobe-icons/a94750e3f5f8fc33757b839d85030e742284e43a/packages/static-png/light/grok.png",
-      "file": "grok-light.png",
-      "bytes": 6883,
-      "sha256": "f10ec0b2322f9d65a973d3d48fcdc41270d8b123a5d36e2826dabf9dcefb0762"
-    },
-    {
-      "agent": "grok",
-      "theme": "dark",
-      "source": "https://raw.githubusercontent.com/lobehub/lobe-icons/a94750e3f5f8fc33757b839d85030e742284e43a/packages/static-png/dark/grok.png",
-      "file": "grok-dark.png",
-      "bytes": 6904,
-      "sha256": "dbd7bf8431752d3a1ad00f7b3b28df4ef5bd508cdb8583c3bd9f579936545fa0"
-    },
-    {
-      "agent": "opencode",
-      "theme": "light",
-      "source": "https://raw.githubusercontent.com/lobehub/lobe-icons/a94750e3f5f8fc33757b839d85030e742284e43a/packages/static-png/light/opencode.png",
-      "file": "opencode-light.png",
-      "bytes": 1773,
-      "sha256": "8dd736cfa2628863a6e008a134d2094da69727d7359caca5bd05fe322ab13905"
-    },
-    {
-      "agent": "opencode",
-      "theme": "dark",
-      "source": "https://raw.githubusercontent.com/lobehub/lobe-icons/a94750e3f5f8fc33757b839d85030e742284e43a/packages/static-png/dark/opencode.png",
-      "file": "opencode-dark.png",
-      "bytes": 1773,
-      "sha256": "017ff9bc277303d042baa12017be114f876b045260603528f5a7beedfdd6c714"
-    },
-    {
       "agent": "hermes",
       "theme": "light",
       "source": "https://raw.githubusercontent.com/lobehub/lobe-icons/a94750e3f5f8fc33757b839d85030e742284e43a/packages/static-png/light/nousresearch.png",
@@ -96,6 +48,22 @@
       "file": "hermes-dark.png",
       "bytes": 17849,
       "sha256": "c4e083a6ddda25f3ffbc74a4754cef020677f73ed324ec46a4c801e1f472767d"
+    },
+    {
+      "agent": "pi",
+      "theme": "light",
+      "source": "https://raw.githubusercontent.com/lobehub/lobe-icons/34270bc208d7122778dc00b30bd460f97ea03216/src/Pi/components/Mono.tsx",
+      "file": "pi-light.png",
+      "bytes": 9741,
+      "sha256": "275c3eb24b66237a99a8465d941e5ef98dc0a3bc7ccc785fbf6fbf0ba5710f22"
+    },
+    {
+      "agent": "pi",
+      "theme": "dark",
+      "source": "https://raw.githubusercontent.com/lobehub/lobe-icons/34270bc208d7122778dc00b30bd460f97ea03216/src/Pi/components/Mono.tsx",
+      "file": "pi-dark.png",
+      "bytes": 9748,
+      "sha256": "31063cbd4afa89586688694f5ee49fa7ecbb7b103952974706d6bb5354b2ff9f"
     }
   ]
 }
